@@ -92,11 +92,11 @@ class StepChainDynamic : public StepGroupDynamic<TypeVector, DIM, TypeRef, TypeV
             for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
                 gridPoints[i] /= l;
             }
-            sMesh = std::make_shared<TypeMesh>(gridPoints, false);
+            std::shared_ptr<TypeMesh> sTmpMesh = std::make_shared<TypeMesh>(gridPoints, false);
             // interpolate for each coordinates
             TypeVector<DIM> x;
             for(std::size_t j = 0; j < DIM; j++) {
-                x[j] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, tmpCoordinates[j], s, interpolationOrder + 1, false);
+                x[j] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sTmpMesh, tmpCoordinates[j], s, interpolationOrder + 1, false);
             }
             return x;
         }

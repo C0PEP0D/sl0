@@ -56,7 +56,7 @@ int main () {
     }
     // out
     std::cout << "\n";
-    std::cout << "Chain advected following a an exponential flow, exp(" << chain.t << ") = " << "\n";
+    std::cout << "Chain advected following an exponential flow, exp(" << chain.t << ") = " << "\n";
     std::cout << "\n";
     std::cout << "Final State : " << "\n" << chain.state << "\n";
     std::cout << "Final Length : " << "\n" << chain.sStep->actualLength(chain.state) << "\n";
