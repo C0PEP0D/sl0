@@ -1,8 +1,8 @@
 
+template<typename TypeVector, template<typename...> typename TypeRef>
 class Flow {
     public:
-        template<typename TypeVector>
-        TypeVector getVelocity(const TypeVector& x, const double& t) const {
+        TypeVector getVelocity(const TypeRef<const TypeVector>& x, const double& t) const {
             return x; // Exponential derivative
         }
 };

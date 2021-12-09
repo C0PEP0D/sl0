@@ -10,50 +10,52 @@
 
 namespace sl0 {
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeFlow>
-class StepPoint : public StepObjectStatic<TypeVector, DIM, TypeRef, DIM> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeFlow>
+class StepPoint : public StepObjectStatic<TypeVector, DIM, DIM> {
     public:
-        using StepObjectStatic<TypeVector, DIM, TypeRef, DIM>::StateSize;
-        using typename StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::TypeStateStatic;
-        using typename StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::TypeSpaceVector;
+        using Type = StepObjectStatic<TypeVector, DIM, DIM>;
+        using Type::StateSize;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
     public:
         StepPoint(const std::shared_ptr<TypeFlow>& p_sFlow) : sFlow(p_sFlow) {
 
         }
 
-        TypeStateStatic operator()(const TypeRef<const TypeStateStatic>& state, const double& t) const override {
-            TypeStateStatic dState;
-            TypeView<TypeSpaceVector> dX = x(dState);
-            dX = sFlow->getVelocity(cX(state), t);
+        TypeStateVectorDynamic operator()(const double* pState, const double& t) const override {
+            TypeStateVectorDynamic dState(Type::stateSize());
+            TypeView<TypeSpaceVector> dX = x(dState.data());
+            dX = sFlow->getVelocity(cX(pState), t);
             return dState;
         }
     public:
-        TypeView<const TypeSpaceVector> cX(const TypeRef<const TypeStateStatic>& state) const {
-            return TypeView<const TypeSpaceVector>(state.data());
+        TypeView<const TypeSpaceVector> cX(const double* pState) const {
+            return TypeView<const TypeSpaceVector>(pState);
         }
-        TypeView<TypeSpaceVector> x(TypeRef<TypeStateStatic> state) const {
-            return TypeView<TypeSpaceVector>(state.data());
+        TypeView<TypeSpaceVector> x(double* pState) const {
+            return TypeView<TypeSpaceVector>(pState);
         }
     public:
-        std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateStatic>& state) const override {
-            return { cX(state) };
+        std::vector<TypeSpaceVector> positions(const double* pState) const override {
+            return { cX(pState) };
         }
     public:
         std::shared_ptr<TypeFlow> sFlow;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeFlow, typename TypeSolver>
-class Point : public ObjectStatic<TypeRef, TypeSolver, StepPoint<TypeVector, DIM, TypeRef, TypeView, TypeFlow>> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeFlow, typename TypeSolver>
+class Point : public ObjectStatic<TypeSolver, StepPoint<TypeVector, DIM, TypeView, TypeFlow>> {
     public:
-        using TypeStep = StepPoint<TypeVector, DIM, TypeRef, TypeView, TypeFlow>;
+        using TypeStep = StepPoint<TypeVector, DIM, TypeView, TypeFlow>;
+        using Type = ObjectStatic<TypeSolver, TypeStep>;
     public:
-        Point(const std::shared_ptr<TypeFlow>& sFlow) : ObjectStatic<TypeRef, TypeSolver, TypeStep>::ObjectStatic(std::make_shared<TypeStep>(sFlow)) {
+        Point(const std::shared_ptr<TypeFlow>& sFlow) : ObjectStatic<TypeSolver, TypeStep>::ObjectStatic(std::make_shared<TypeStep>(sFlow)) {
         }
     public:
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::sSolver;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::sStep;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::state;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::t;
+        using Type::sSolver;
+        using Type::sStep;
+        using Type::state;
+        using Type::t;
 };
 
 }

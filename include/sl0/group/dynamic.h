@@ -14,35 +14,38 @@
 
 namespace sl0 {
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeMemberStep>
-class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView>
+class StepGroupDynamic : public StepObject<TypeVector, DIM> {
     public:
-        using typename StepObject<TypeVector, DIM, TypeRef>::TypeStateDynamic;
-        using typename StepObject<TypeVector, DIM, TypeRef>::TypeSpaceVector;
+        using Type = StepObject<TypeVector, DIM>;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
+        using TypeMemberStep = StepObjectStaticBase<TypeVector, DIM>;
     public:
         StepGroupDynamic() {
         }
     public:
         // Main
-        TypeStateDynamic operator()(const TypeRef<const TypeStateDynamic>& state, const double& t) const override {
+        TypeStateVectorDynamic operator()(const double* pState, const double& t) const override {
             // Init dState
-            TypeStateDynamic dState;
+            TypeStateVectorDynamic dState;
             dState.resize(stateSize());
             // Set dState
             std::vector<unsigned int> memberIndexs(sMemberSteps.size());
             std::iota(memberIndexs.begin(), memberIndexs.end(), 0);
-            std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, state, t, &dState](const unsigned int& memberIndex){ 
-                memberState(dState, memberIndex) = (*sMemberSteps[memberIndex])(cMemberState(state, memberIndex), t); 
+            std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, pState, t, &dState](const unsigned int& memberIndex){ 
+                TypeView<TypeStateVectorDynamic> dMemberState(memberState(dState.data(), memberIndex), memberStateSizes[memberIndex]); 
+                dMemberState = (*sMemberSteps[memberIndex])(cMemberState(pState, memberIndex), t); 
             });
             // Return result
             return dState;
         }
 
-        void update(TypeRef<TypeStateDynamic> state, const double& t) override {
+        void update(std::vector<double>& state, const double& t) override {
             std::vector<unsigned int> memberIndexs(sMemberSteps.size());
             std::iota(memberIndexs.begin(), memberIndexs.end(), 0);
             std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, &state, t](const unsigned int& memberIndex){
-                sMemberSteps[memberIndex]->update(TypeRef<TypeStateDynamic>(memberState(state, memberIndex)), t);
+                sMemberSteps[memberIndex]->update(memberState(state.data(), memberIndex), t);
             });
         }
 
@@ -54,8 +57,11 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
             }
         }
     public:
-        // registering
-        virtual void registerMember(std::shared_ptr<TypeMemberStep> sStep, const unsigned int& stateSize) {
+        // member management
+        void addMember(std::vector<double>& state, std::shared_ptr<TypeMemberStep> sMemberStep, const unsigned int& stateSize) {
+            // state resize
+            state.resize(state.size() + stateSize);
+            // regster member
             if (not memberStateIndexs.empty()) {
                 memberIndexs.push_back(memberIndexs.back() + 1);
                 memberStateIndexs.push_back(memberStateIndexs.back() + memberStateSizes.back());
@@ -63,13 +69,16 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
                 memberIndexs.push_back(0);
                 memberStateIndexs.push_back(0);
             }
-            sMemberSteps.push_back(sStep);
+            sMemberSteps.push_back(sMemberStep);
             memberStateSizes.push_back(stateSize);
         }
 
-        virtual void unregisterMember(const unsigned int& memberIndex) {
+        void removeMember(std::vector<double>& state, const unsigned int& memberIndex) {
+            // state resize
+            std::copy(state.begin() + memberIndex + memberStateSizes[memberIndex], state.end(), state.begin() + memberIndex);
+            state.resize(state.size() - memberStateSizes[memberIndex]);
+            // unregister member
             sMemberSteps.erase(sMemberSteps.begin() + memberIndex);
-            // TODO STL
             for(unsigned int i = memberIndex + 1; i < sMemberSteps.size(); i++) {
                 memberStateIndexs[i] -= memberStateSizes[memberIndex];
             }
@@ -77,9 +86,27 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
             memberStateSizes.erase(memberStateSizes.begin() + memberIndex);
         }
 
-        virtual void updateMemberSize(const unsigned int& memberIndex, const int& difference) {
+
+        void removeMember(std::vector<double>& state) {
+            // state resize
+            state.resize(state.size() - memberStateSizes.back());
+            // unregister member
+            sMemberSteps.pop_back();
+            memberStateIndexs.pop_back();
+            memberStateSizes.pop_back();
+        }
+
+        void updateMemberSize(std::vector<double>& state, const unsigned int& memberIndex, const unsigned int& stateSize) {
+            const int difference = stateSize - memberStateSizes[memberIndex];
+            if(difference > 0) {
+                state.resize(state.size() + difference);
+                std::copy(state.begin() + memberIndex + memberStateSizes[memberIndex], state.end() - difference, state.begin() + stateSize);
+            } else {
+                std::copy(state.begin() + memberIndex + memberStateSizes[memberIndex], state.end(), state.begin() + stateSize);
+                state.resize(state.size() + difference);
+            }
+            // register size change
             memberStateSizes[memberIndex] += difference;
-            // TODO STL
             for(unsigned int i = memberIndex + 1; i < sMemberSteps.size(); i++) {
                 memberStateIndexs[i] += difference;
             }
@@ -90,19 +117,19 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
             return sMemberSteps.size();
         }
 
-        TypeView<const TypeStateDynamic> cMemberState(const TypeRef<const TypeStateDynamic>& state, const std::size_t& memberIndex) const {
-            return TypeView<const TypeStateDynamic>(state.data() + memberStateIndexs[memberIndex], memberStateSizes[memberIndex]);
+        const double* cMemberState(const double* pState, const std::size_t& memberIndex) const {
+            return pState + memberStateIndexs[memberIndex];
         }
 
-        TypeView<TypeStateDynamic> memberState(TypeRef<TypeStateDynamic> state, const std::size_t& memberIndex) const {
-            return TypeView<TypeStateDynamic>(state.data() + memberStateIndexs[memberIndex], memberStateSizes[memberIndex]);
+        double* memberState(double* pState, const std::size_t& memberIndex) const {
+            return pState + memberStateIndexs[memberIndex];
         }
     public:
-        std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateDynamic>& state) const {
+        std::vector<TypeSpaceVector> positions(const double* pState) const override {
             std::vector<TypeSpaceVector> result;
-            result.reserve(size() * sMemberSteps[0]->positions(cMemberState(state, 0)).size());
+            //result.reserve(size() * sMemberSteps[0]->positions(cMemberState(state, 0)).size());
             for(unsigned int i = 0; i < size(); i++) {
-                const std::vector<TypeSpaceVector> memberPositions = sMemberSteps[i]->positions(cMemberState(state, i));
+                const std::vector<TypeSpaceVector> memberPositions = sMemberSteps[i]->positions(cMemberState(pState, i));
                 result.insert(result.end(), memberPositions.begin(), memberPositions.end());
             }
             return result;
@@ -114,34 +141,12 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM, TypeRef> {
         std::vector<unsigned int> memberStateIndexs;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeMemberStep, typename TypeSolver>
-class GroupDynamic : public ObjectDynamic<TypeSolver, StepGroupDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep>> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeSolver>
+class GroupDynamic : public ObjectDynamic<TypeSolver, StepGroupDynamic<TypeVector, DIM, TypeView>> {
     public:
-        using TypeStep = StepGroupDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep>;
+        using TypeStep = StepGroupDynamic<TypeVector, DIM, TypeView>;
     public:
         GroupDynamic() : ObjectDynamic<TypeSolver, TypeStep>(std::make_shared<TypeStep>()) {
-        }
-    public:
-        // member management
-        void addMember(std::shared_ptr<TypeMemberStep> sMemberStep, const unsigned int& stateSize) {
-            state.conservativeResize(state.size() + stateSize);
-            sStep->registerMember(sMemberStep, stateSize);
-        }
-        void removeMember(const unsigned int& memberIndex) {
-            std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end(), state.begin() + memberIndex);
-            state.conservativeResize(state.size() - sStep->memberStateSizes[memberIndex]);
-            sStep->unregisterMember(memberIndex);
-        }
-        void updateMemberSize(const unsigned int& memberIndex, const unsigned int& stateSize) {
-            const int difference = stateSize - sStep->memberStateSizes[memberIndex];
-            if(difference > 0) {
-                state.conservativeResize(state.size() + difference);
-                std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end() - difference, state.begin() + stateSize);
-            } else {
-                std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end(), state.begin() + stateSize);
-                state.conservativeResize(state.size() + difference);
-            }
-            sStep->updateMemberSize(memberIndex, difference);
         }
     public:
         // Inherited properties
@@ -149,6 +154,69 @@ class GroupDynamic : public ObjectDynamic<TypeSolver, StepGroupDynamic<TypeVecto
         using ObjectDynamic<TypeSolver, TypeStep>::sStep;
         using ObjectDynamic<TypeSolver, TypeStep>::state;
         using ObjectDynamic<TypeSolver, TypeStep>::t;
+};
+
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView>
+class StepGroupDynamicHomogeneousBase : public StepGroupDynamic<TypeVector, DIM, TypeView> {
+    public:
+        using Type = StepGroupDynamic<TypeVector, DIM, TypeView>;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
+    public:
+        StepGroupDynamicHomogeneousBase() {
+        }
+    public:
+        virtual void addMember(std::vector<double>& state) = 0;
+    public:
+        virtual void registerState(std::vector<double>& state) = 0;
+};
+
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeMemberStep>
+class StepGroupDynamicHomogeneous : public StepGroupDynamicHomogeneousBase<TypeVector, DIM, TypeView> {
+    public:
+        using Type = StepGroupDynamic<TypeVector, DIM, TypeView>;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
+    public:
+        StepGroupDynamicHomogeneous(std::shared_ptr<TypeMemberStep> p_sMemberStep) : sMemberStep(p_sMemberStep) {
+        }
+    public:
+        void addMember(std::vector<double>& state) override {
+            Type::addMember(state, std::make_shared<TypeMemberStep>(*sMemberStep), sMemberStep->stateSize());
+        }
+    public:
+        void registerState(std::vector<double>& state) override {
+            // register and unregister if state size does not correspond to size
+            int difference = state.size() / sMemberStep->stateSize() - Type::size();
+            if(difference > 0) {
+                for(unsigned int i = 0; i < difference; i++) {
+                    // register member
+                    if (not memberStateIndexs.empty()) {
+                        memberIndexs.push_back(memberIndexs.back() + 1);
+                        memberStateIndexs.push_back(memberStateIndexs.back() + memberStateSizes.back());
+                    } else {
+                        memberIndexs.push_back(0);
+                        memberStateIndexs.push_back(0);
+                    }
+                    sMemberSteps.push_back(std::make_shared<TypeMemberStep>(*sMemberStep));
+                    memberStateSizes.push_back(sMemberStep->stateSize());
+                }
+            } else if (difference < 0) {
+                for(unsigned int i = 0; i < std::abs(difference); i++) {
+                    // unregister member
+                    sMemberSteps.pop_back();
+                    memberStateIndexs.pop_back();
+                    memberStateSizes.pop_back();
+                }
+            }
+        }
+    public:
+        using Type::memberIndexs;
+        using Type::sMemberSteps;
+        using Type::memberStateSizes;
+        using Type::memberStateIndexs;
+    public:
+        std::shared_ptr<TypeMemberStep> sMemberStep;
 };
 
 }

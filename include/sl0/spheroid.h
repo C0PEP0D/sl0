@@ -10,47 +10,48 @@
 
 namespace sl0 {
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView>
-class StepAxis : public StepObjectStatic<TypeVector, DIM, TypeRef, 2*DIM> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView>
+class StepAxis : public StepObjectStatic<TypeVector, DIM, 2*DIM> {
     public:
-        using StepObjectStatic<TypeVector, DIM, TypeRef, 2*DIM>::StateSize;
-        using typename StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::TypeStateStatic;
-        using typename StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::TypeSpaceVector;
+        using Type = StepObjectStatic<TypeVector, DIM, 2*DIM>;
+        using Type::StateSize;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
     public:
-        using StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::StepObjectStatic;
-        void update(TypeRef<TypeStateStatic> state, const double& t) override {
-            StepObjectStatic<TypeVector, DIM, TypeRef, StateSize>::update(state, t);
+        using StepObjectStatic<TypeVector, DIM, StateSize>::StepObjectStatic;
+        void update(double* pState, const double& t) override {
+            StepObjectStatic<TypeVector, DIM, StateSize>::update(pState, t);
             // just orthonormalize axis
-            normalizeAxis(state);
+            normalizeAxis(pState);
         }
         // sub update methods
-        void normalizeAxis(TypeRef<TypeStateStatic> state) {
-            axis(state).normalize();
+        void normalizeAxis(double* pState) {
+            axis(pState).normalize();
         }
     public:
-        virtual TypeView<const TypeSpaceVector> cAxis(const TypeRef<const TypeStateStatic>& state) const = 0;
-        virtual TypeView<TypeSpaceVector> axis(TypeRef<TypeStateStatic> state) const = 0;
+        virtual TypeView<const TypeSpaceVector> cAxis(const double* pState) const = 0;
+        virtual TypeView<TypeSpaceVector> axis(double* pState) const = 0;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeFlow>
-class StepSpheroid : public StepAxis<TypeVector, DIM, TypeRef, TypeView> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeFlow>
+class StepSpheroid : public StepAxis<TypeVector, DIM, TypeView> {
     public:
-        using TypeStepAxis = StepAxis<TypeVector, DIM, TypeRef, TypeView>;
+        using TypeStepAxis = StepAxis<TypeVector, DIM, TypeView>;
         using TypeStepAxis::StateSize;
-        using typename TypeStepAxis::TypeStateStatic;
         using typename TypeStepAxis::TypeSpaceVector;
+        using typename TypeStepAxis::TypeStateVectorDynamic;
     public:
         StepSpheroid(const std::shared_ptr<TypeFlow>& p_sFlow, const double& prop) : TypeStepAxis(), sFlow(p_sFlow) {
             setProportion(prop);
         }
-        TypeStateStatic operator()(const TypeRef<const TypeStateStatic>& state, const double& t) const override {
-            TypeStateStatic dState = TypeStateStatic::Zero();
+        TypeStateVectorDynamic operator()(const double* pState, const double& t) const override {
+            TypeStateVectorDynamic dState(TypeStepAxis::stateSize());
             // Get data from state
-            const TypeView<const TypeSpaceVector> sX = cX(state);
-            const TypeView<const TypeSpaceVector> sAxis = cAxis(state);
+            const TypeView<const TypeSpaceVector> sX = cX(pState);
+            const TypeView<const TypeSpaceVector> sAxis = cAxis(pState);
             // Prepare to set data
-            TypeView<TypeSpaceVector> dX = x(dState);
-            TypeView<TypeSpaceVector> dAxis = axis(dState);
+            TypeView<TypeSpaceVector> dX = x(dState.data());
+            TypeView<TypeSpaceVector> dAxis = axis(dState.data());
             // Compute linear velocity
             dX = sFlow->getVelocity(sX, t);
             // Compute rotaton velocity
@@ -60,21 +61,21 @@ class StepSpheroid : public StepAxis<TypeVector, DIM, TypeRef, TypeView> {
             return dState;
         }
     public:
-        TypeView<const TypeSpaceVector> cX(const TypeRef<const TypeStateStatic>& state) const {
-            return TypeView<const TypeSpaceVector>(state.data());
+        TypeView<const TypeSpaceVector> cX(const double* pState) const {
+            return TypeView<const TypeSpaceVector>(pState);
         }
-        TypeView<TypeSpaceVector> x(TypeRef<TypeStateStatic> state) const {
-            return TypeView<TypeSpaceVector>(state.data());
+        TypeView<TypeSpaceVector> x(double* pState) const {
+            return TypeView<TypeSpaceVector>(pState);
         }
-        TypeView<const TypeSpaceVector> cAxis(const TypeRef<const TypeStateStatic>& state) const override {
-            return TypeView<const TypeSpaceVector>(state.data() + DIM);
+        TypeView<const TypeSpaceVector> cAxis(const double* pState) const override {
+            return TypeView<const TypeSpaceVector>(pState + DIM);
         }
-        TypeView<TypeSpaceVector> axis(TypeRef<TypeStateStatic> state) const override {
-            return TypeView<TypeSpaceVector>(state.data() + DIM);
+        TypeView<TypeSpaceVector> axis(double* pState) const override {
+            return TypeView<TypeSpaceVector>(pState + DIM);
         }
     public:
-        std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateStatic>& state) const override {
-            return { cX(state) };
+        std::vector<TypeSpaceVector> positions(const double* pState) const override {
+            return { cX(pState) };
         }
     public:
         void setProportion(const double& prop) {
@@ -88,18 +89,19 @@ class StepSpheroid : public StepAxis<TypeVector, DIM, TypeRef, TypeView> {
         double factor;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeFlow, typename TypeSolver>
-class Spheroid : public ObjectStatic<TypeRef, TypeSolver, StepSpheroid<TypeVector, DIM, TypeRef, TypeView, TypeFlow>> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeFlow, typename TypeSolver>
+class Spheroid : public ObjectStatic<TypeSolver, StepSpheroid<TypeVector, DIM, TypeView, TypeFlow>> {
     public:
-        using TypeStep = StepSpheroid<TypeVector, DIM, TypeRef, TypeView, TypeFlow>;
+        using TypeStep = StepSpheroid<TypeVector, DIM, TypeView, TypeFlow>;
+        using Type = ObjectStatic<TypeSolver, TypeStep>;
     public:
-        Spheroid(const std::shared_ptr<TypeFlow>& sFlow, const double& prop) : ObjectStatic<TypeRef, TypeSolver, TypeStep>::ObjectStatic(std::make_shared<TypeStep>(sFlow, prop)) {
+        Spheroid(const std::shared_ptr<TypeFlow>& sFlow, const double& prop) : Type::ObjectStatic(std::make_shared<TypeStep>(sFlow, prop)) {
         }
     public:
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::sSolver;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::sStep;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::state;
-        using ObjectStatic<TypeRef, TypeSolver, TypeStep>::t;
+        using Type::sSolver;
+        using Type::sStep;
+        using Type::state;
+        using Type::t;
 };
 
 }

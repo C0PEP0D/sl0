@@ -15,81 +15,95 @@
 
 namespace sl0 {
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeMemberStep>
-class StepChainDynamic : public StepGroupDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, template<typename...> class TypeRef, typename TypeMemberStep>
+class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, TypeView, TypeMemberStep> {
     public:
-        using TypeStepGroupDynamic = StepGroupDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep>;
-        using typename TypeStepGroupDynamic::TypeStateDynamic;
+        using Type = StepGroupDynamicHomogeneous<TypeVector, DIM, TypeView, TypeMemberStep>;
+        using typename Type::TypeStateVectorDynamic;
     public:
         template<typename ...Args>
         using TypeContainer = std::vector<Args...>;
         using TypeMesh = m0sh::NonUniform<TypeVector<1>, TypeRef, TypeContainer>;
         using TypeMeshSub = m0sh::StructuredSub<TypeVector<1>, TypeRef, TypeContainer>;
     public:
-        StepChainDynamic(const double& p_dl, const unsigned int& p_interpolationOrder) : TypeStepGroupDynamic(), dl(p_dl), interpolationOrder(p_interpolationOrder), coordinates(DIM) {
+        StepChainDynamic(std::shared_ptr<TypeMemberStep> p_sMemberStep, const double& p_dl, const unsigned int& p_interpolationOrder) : Type(p_sMemberStep), dl(p_dl), interpolationOrder(p_interpolationOrder), coordinates(DIM) {
         }
 
-        void update(TypeRef<TypeStateDynamic> state, const double& t) override {
-            TypeStepGroupDynamic::update(state, t);
+        void update(std::vector<double>& state, const double& t) override {
+            Type::update(state, t);
             // coordinates
             for(std::size_t i = 0; i < DIM; i++) {
-                coordinates[i].resize(TypeStepGroupDynamic::size());
+                coordinates[i].resize(Type::size());
             }
-            for(std::size_t i = 0; i < TypeStepGroupDynamic::size(); i++) {
-                const TypeVector<DIM> position = sMemberSteps[i]->cX(cMemberState(state, i));
+            for(std::size_t i = 0; i < Type::size(); i++) {
+                const TypeVector<DIM> position = sMemberStep->cX(cMemberState(state.data(), i));
                 for(std::size_t j = 0; j < DIM; j++) {
                     coordinates[j][i] = position[j];
                 }
             }
             // mesh
             double l = 0.0;
-            TypeContainer<double> gridPoints(TypeStepGroupDynamic::size());
+            TypeContainer<double> gridPoints(Type::size());
             gridPoints[0] = 0.0;
-            for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
-                const auto x1 = sMemberSteps[i]->cX(cMemberState(state, i));
-                const auto x0 = sMemberSteps[i]->cX(cMemberState(state, i - 1));
+            for(std::size_t i = 1; i < Type::size(); i++){ 
+                const auto x1 = sMemberStep->cX(cMemberState(state.data(), i));
+                const auto x0 = sMemberStep->cX(cMemberState(state.data(), i - 1));
                 l += (x1 - x0).norm();
                 gridPoints[i] = l;
             }
-            for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
+            for(std::size_t i = 1; i < Type::size(); i++){ 
                 gridPoints[i] /= l;
             }
             sMesh = std::make_shared<TypeMesh>(gridPoints, false);
             // update size
-            newLength = length(state);
-            newSize = std::ceil(newLength/dl);
-            newDs = 1.0 / (newSize - 1);
-            // interpolation
-            for(std::size_t i = 0; i < TypeStepGroupDynamic::size(); i++) {
-                const TypeVector<1> s(i * newDs);
-                TypeView<TypeVector<DIM>> x = sMemberSteps[i]->x(memberState(state, i));
-                for(std::size_t j = 0; j < DIM; j++) {
-                    x[j] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, coordinates[j], s, interpolationOrder + 1, false);
+            const double newLength = length(state.data());
+            const std::size_t newSize = std::ceil(newLength/dl);
+            const double newDs = 1.0 / (newSize - 1);
+            // manage data
+            const int difference = newSize - Type::size();
+            if(difference < 0) {
+                for(int i = -1; i >= difference; i--) {
+                    Type::removeMember(state);
+                }
+            } else if(difference > 0) {
+                for(int i = 0; i < difference; i++) {
+                    // create new member
+                    std::shared_ptr<TypeMemberStep> sNewMemberStep = std::make_shared<TypeMemberStep>(*sMemberStep);
+                    // add member
+                    Type::addMember(state);
                 }
             }
+            // interpolation
+            std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, pState, t, &dState](const unsigned int& memberIndex){ 
+                const TypeVector<1> s(memberIndex * newDs);
+                TypeView<TypeVector<DIM>> x = sMemberStep->x(memberState(state.data(), i));
+                for(std::size_t i = 0; i < DIM; i++) {
+                    x[i] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, coordinates[i], s, interpolationOrder + 1, false);
+                }
+            });
         }
     public:
-        TypeVector<DIM> cX(const TypeRef<const TypeStateDynamic> state, const double& p_s) const {
+        TypeVector<DIM> cX(const double* pState, const double& p_s) const {
             const TypeVector<1> s(p_s);
             // coordinates
-            TypeContainer<TypeContainer<double>> tmpCoordinates(DIM, TypeContainer<double>(TypeStepGroupDynamic::size())); // TODO: do this better
-            for(std::size_t i = 0; i < TypeStepGroupDynamic::size(); i++) {
-                const TypeVector<DIM> position = sMemberSteps[i]->cX(cMemberState(state, i));
+            TypeContainer<TypeContainer<double>> tmpCoordinates(DIM, TypeContainer<double>(Type::size())); // TODO: do this better
+            for(std::size_t i = 0; i < Type::size(); i++) {
+                const TypeVector<DIM> position = sMemberStep->cX(cMemberState(pState, i));
                 for(std::size_t j = 0; j < DIM; j++) {
                     tmpCoordinates[j][i] = position[j];
                 }
             }
             // mesh
             double l = 0.0;
-            TypeContainer<double> gridPoints(TypeStepGroupDynamic::size());
+            TypeContainer<double> gridPoints(Type::size());
             gridPoints[0] = 0.0;
-            for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
-                const auto x1 = sMemberSteps[i]->cX(cMemberState(state, i));
-                const auto x0 = sMemberSteps[i]->cX(cMemberState(state, i - 1));
+            for(std::size_t i = 1; i < Type::size(); i++){ 
+                const auto x1 = sMemberStep->cX(cMemberState(pState, i));
+                const auto x0 = sMemberStep->cX(cMemberState(pState, i - 1));
                 l += (x1 - x0).norm();
                 gridPoints[i] = l;
             }
-            for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
+            for(std::size_t i = 1; i < Type::size(); i++){ 
                 gridPoints[i] /= l;
             }
             std::shared_ptr<TypeMesh> sTmpMesh = std::make_shared<TypeMesh>(gridPoints, false);
@@ -101,11 +115,11 @@ class StepChainDynamic : public StepGroupDynamic<TypeVector, DIM, TypeRef, TypeV
             return x;
         }
     public:
-        double length(const TypeRef<const TypeStateDynamic>& state) const {
+        double length(const double* pState) const {
             double l = 0.0;
-            for(std::size_t i = 1; i < TypeStepGroupDynamic::size(); i++){ 
-                const auto x1 = sMemberSteps[i]->cX(cMemberState(state, i));
-                const auto x0 = sMemberSteps[i]->cX(cMemberState(state, i-1));
+            for(std::size_t i = 1; i < Type::size(); i++){ 
+                const auto x1 = sMemberStep->cX(cMemberState(pState, i));
+                const auto x0 = sMemberStep->cX(cMemberState(pState, i-1));
                 l += (x1 - x0).norm();
             }
             return l;
@@ -117,74 +131,25 @@ class StepChainDynamic : public StepGroupDynamic<TypeVector, DIM, TypeRef, TypeV
         // shape description
         std::shared_ptr<TypeMesh> sMesh;
         std::vector<std::vector<double>> coordinates; // TODO: iterate avec all state, not just coordinates ?
-        double newLength;
-        std::size_t newSize;
-        double newDs;
     public:
-        using TypeStepGroupDynamic::cMemberState;
-        using TypeStepGroupDynamic::memberState;
+        using Type::sMemberStep;
     public:
-        using TypeStepGroupDynamic::sMemberSteps;
+        using Type::cMemberState;
+        using Type::memberState;
+    public:
+        using Type::sMemberSteps;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, template<typename...> class TypeView, typename TypeMemberStep, typename TypeSolver>
-class ChainDynamic : public ObjectDynamic<TypeSolver, StepChainDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep>> {
+template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, template<typename...> class TypeRef, typename TypeMemberStep, typename TypeSolver>
+class ChainDynamic : public ObjectDynamic<TypeSolver, StepChainDynamic<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>> {
     public:
-        using TypeStep = StepChainDynamic<TypeVector, DIM, TypeRef, TypeView, TypeMemberStep>;
+        using TypeStep = StepChainDynamic<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>;
     public:
         template<typename ...Args>
         using TypeContainer = std::vector<Args...>;
     public:
-        ChainDynamic(const std::shared_ptr<TypeMemberStep>& p_sMemberStep, const double& p_dl, const unsigned int& p_interpolationOrder) : ObjectDynamic<TypeSolver, TypeStep>(std::make_shared<TypeStep>(p_dl, p_interpolationOrder)), sMemberStep(p_sMemberStep) {
+        ChainDynamic(const std::shared_ptr<TypeMemberStep>& p_sMemberStep, const double& p_dl, const unsigned int& p_interpolationOrder) : ObjectDynamic<TypeSolver, TypeStep>(std::make_shared<TypeStep>(p_sMemberStep, p_dl, p_interpolationOrder)) {
         }
-    public:
-        // member management
-        void addMember(std::shared_ptr<TypeMemberStep> p_sMemberStep, const unsigned int& stateSize) {
-            state.conservativeResize(state.size() + stateSize);
-            sStep->registerMember(p_sMemberStep, stateSize);
-        }
-        void removeMember(const unsigned int& memberIndex) {
-            std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end(), state.begin() + memberIndex);
-            state.conservativeResize(state.size() - sStep->memberStateSizes[memberIndex]);
-            sStep->unregisterMember(memberIndex);
-        }
-        void updateMemberSize(const unsigned int& memberIndex, const unsigned int& stateSize) {
-            const int difference = stateSize - sStep->memberStateSizes[memberIndex];
-            if(difference > 0) {
-                state.conservativeResize(state.size() + difference);
-                std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end() - difference, state.begin() + stateSize);
-            } else {
-                std::copy(state.begin() + memberIndex + sStep->memberStateSizes[memberIndex], state.end(), state.begin() + stateSize);
-                state.conservativeResize(state.size() + difference);
-            }
-            sStep->updateMemberSize(memberIndex, difference);
-        }
-    public:
-        void update(const double& dt) override {
-            ObjectDynamic<TypeSolver, TypeStep>::update(dt);
-            // manage data
-            const int difference = sStep->newSize - sStep->size();
-            if(difference < 0) {
-                for(int i = -1; i >= difference; i--) {
-                    removeMember(sStep->size() + i);
-                }
-            } else if(difference > 0) {
-                for(int i = 0; i < difference; i++) {
-                    // create new member
-                    std::shared_ptr<TypeMemberStep> sNewMemberStep = std::make_shared<TypeMemberStep>(*sMemberStep);
-                    // add member
-                    addMember(sNewMemberStep, sNewMemberStep->stateSize());
-                    // interpolate position of the member
-                    const TypeVector<1> s((sStep->size() - 1) * sStep->newDs);
-                    TypeView<TypeVector<DIM>> x = sNewMemberStep->x(sStep->memberState(state, sStep->size() - 1));
-                    for(std::size_t j = 0; j < DIM; j++) {
-                        x[j] = p0l::lagrangeMeshPoint<typename TypeStep::TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, typename TypeStep::TypeMeshSub>(sStep->sMesh, sStep->coordinates[j], s, sStep->interpolationOrder + 1, false);
-                    }
-                }
-            }
-        }
-    public:
-        std::shared_ptr<TypeMemberStep> sMemberStep;
     public:
         // Inherited
         using ObjectDynamic<TypeSolver, TypeStep>::sSolver;

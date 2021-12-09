@@ -8,54 +8,64 @@
 
 namespace sl0 {
 
-template<template<int> typename TypeVector, unsigned int _DIM, template<typename...> class TypeRef>
+template<template<int> typename TypeVector, unsigned int _DIM>
 class StepObject {
     public:
-        using TypeStateDynamic = TypeVector<Eigen::Dynamic>;
         static const unsigned int DIM = _DIM;
         using TypeSpaceVector = TypeVector<DIM>;
+        using TypeStateVectorDynamic = TypeVector<-1>;
     public:
         StepObject() {
         }
         // Returns dState
-        virtual TypeStateDynamic operator()(const TypeRef<const TypeStateDynamic>& state, const double& t) const = 0;
+        virtual TypeStateVectorDynamic operator()(const double* state, const double& t) const = 0;
         // Applies non linear changes to state
-        virtual void update(TypeRef<TypeStateDynamic> state, const double& t) = 0;
+        virtual void update(std::vector<double>& state, const double& t) {
+        };
         // Returns current state size
         virtual unsigned int stateSize() const = 0;
         // Returns object's positions
-        virtual std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateDynamic>& state) const = 0;
+        virtual std::vector<TypeSpaceVector> positions(const double* pState) const = 0;
 };
 
-template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeRef, unsigned int _StateSize>
-class StepObjectStatic : public StepObject<TypeVector, DIM, TypeRef> {
+template<template<int> typename TypeVector, unsigned int DIM>
+class StepObjectStaticBase : public StepObject<TypeVector, DIM> {
     public:
-        using typename StepObject<TypeVector, DIM, TypeRef>::TypeStateDynamic;
-        using typename StepObject<TypeVector, DIM, TypeRef>::TypeSpaceVector;
+        using Type = StepObject<TypeVector, DIM>;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
+    public:
+        StepObjectStaticBase() {
+        }
+        // Applies non linear changes to state
+        void update(std::vector<double>& state, const double& t) override {
+            update(state.data(), t);
+        }
+        virtual void update(double* pState, const double& t) {
+        };
+};
+
+template<template<int> typename TypeVector, unsigned int DIM, unsigned int _StateSize>
+class StepObjectStatic : public StepObjectStaticBase<TypeVector, DIM> {
+    public:
+        using Type = StepObject<TypeVector, DIM>;
+        using typename Type::TypeSpaceVector;
+        using typename Type::TypeStateVectorDynamic;
         static const unsigned int StateSize = _StateSize;
-        using TypeStateStatic = TypeVector<StateSize>;
+        //using TypeStateVector = TypeVector<StateSize>;
     public:
         StepObjectStatic() {
         }
-        // Returns dState
-        TypeStateDynamic operator()(const TypeRef<const TypeStateDynamic>& state, const double& t) const override {
-            return operator()(TypeRef<const TypeStateStatic>(state), t);
-        }
-        virtual TypeStateStatic operator()(const TypeRef<const TypeStateStatic>& state, const double& t) const = 0;
         // Applies non linear changes to state
-        void update(TypeRef<TypeStateDynamic> state, const double& t) override {
-            update(TypeRef<TypeStateStatic>(state), t);
+        void update(std::vector<double>& state, const double& t) override {
+            update(state.data(), t);
         }
-        virtual void update(TypeRef<TypeStateStatic> state, const double& t) {}
+        virtual void update(double* pState, const double& t) {
+        };
         // Returns current state size
         unsigned int stateSize() const override {
             return StateSize;
         }
-        // Returns object's positions
-        std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateDynamic>& state) const override {
-            return positions(TypeRef<const TypeStateStatic>(state));
-        }
-        virtual std::vector<TypeSpaceVector> positions(const TypeRef<const TypeStateStatic>& state) const = 0;
 };
 
 template<typename TypeSolver, typename _TypeStep>
@@ -66,7 +76,7 @@ class ObjectDynamic {
         ObjectDynamic(const std::shared_ptr<TypeStep>& p_sStep) : sSolver(std::make_shared<TypeSolver>()), sStep(p_sStep), t(0.0) {
         }
         virtual void update(const double& dt) {
-            state = (*sSolver)(*sStep, state, t, dt);
+            (*sSolver)(*sStep, state.data(), state.size(), t, dt);
             (*sStep).update(state, t);
             t += dt;
         }
@@ -76,20 +86,20 @@ class ObjectDynamic {
         std::shared_ptr<TypeStep> sStep;
         // State
         double t;
-        typename TypeStep::TypeStateDynamic state;
+        std::vector<double> state;
 };
 
 
-template<template<typename...> class TypeRef, typename TypeSolver, typename _TypeStep>
+template<typename TypeSolver, typename _TypeStep>
 class ObjectStatic {
     public:
         using TypeStep = _TypeStep;
     public:
-        ObjectStatic(const std::shared_ptr<TypeStep>& p_sStep) : sSolver(std::make_shared<TypeSolver>()), sStep(p_sStep), t(0.0), state(TypeStep::TypeStateStatic::Zero()) {
+        ObjectStatic(const std::shared_ptr<TypeStep>& p_sStep) : sSolver(std::make_shared<TypeSolver>()), sStep(p_sStep), t(0.0), state(sStep->stateSize(), 0.0) {
         }
         virtual void update(const double& dt) {
-            state = (*sSolver)(*sStep, state, t, dt);
-            (*sStep).update(TypeRef<typename TypeStep::TypeStateStatic>(state), t);
+            (*sSolver)(*sStep, state.data(), state.size(), t, dt);
+            (*sStep).update(state.data(), t);
             t += dt;
         }
     public:
@@ -98,7 +108,7 @@ class ObjectStatic {
         std::shared_ptr<TypeStep> sStep;
         // State
         double t;
-        typename TypeStep::TypeStateStatic state;
+        std::vector<double> state;
 };
 
 }

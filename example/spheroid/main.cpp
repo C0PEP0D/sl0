@@ -24,7 +24,7 @@ using TypeRef = Eigen::Ref<Args...>;
 template<typename ...Args>
 using TypeView = Eigen::Map<Args...>;
 // Solver
-using TypeSolver = s0s::SolverRungeKuttaFehlberg;
+using TypeSolver = s0s::SolverRungeKuttaFehlberg<TypeVector<Eigen::Dynamic>, TypeView>;
 // Flow
 using TypeFlow = Flow<TypeSpaceVector, TypeSpaceMatrix, TypeRef>;
 
@@ -41,10 +41,10 @@ int main () {
     double dt = 1e-2;
     double tEnd = 1.0;
     // Create ellipsoid
-    sl0::Spheroid<TypeVector, DIM, TypeRef, TypeView, TypeFlow, TypeSolver> spheroid(std::make_shared<TypeFlow>(), 1.0);
+    sl0::Spheroid<TypeVector, DIM, TypeView, TypeFlow, TypeSolver> spheroid(std::make_shared<TypeFlow>(), 1.0);
     // Set initial state
-    spheroid.sStep->x(spheroid.state) = x0;
-    spheroid.sStep->axis(spheroid.state) = p0;
+    spheroid.sStep->x(spheroid.state.data()) = x0;
+    spheroid.sStep->axis(spheroid.state.data()) = p0;
     spheroid.t = t0;
     // Compute
     std::cout << "Spheroid in a simple shear flow : \n";
@@ -52,12 +52,12 @@ int main () {
     std::cout << "Orientation after each step : \n";
     for(std::size_t i = 0; i < (tEnd - t0)/dt; i++) {
         spheroid.update(dt);
-        std::cout << spheroid.sStep->axis(spheroid.state) << "\n";
+        std::cout << spheroid.sStep->axis(spheroid.state.data()) << "\n";
     }
     // out
     std::cout << "Spheroid in a simple shear flow : \n";
     std::cout << "\n";
     std::cout << "Final orientation : \n";
-    std::cout << spheroid.sStep->axis(spheroid.state) << "\n";
+    std::cout << spheroid.sStep->axis(spheroid.state.data()) << "\n";
     std::cout << std::endl;
 }
