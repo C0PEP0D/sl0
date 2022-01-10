@@ -31,8 +31,6 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM> {
             TypeStateVectorDynamic dState;
             dState.resize(stateSize());
             // Set dState
-            std::vector<unsigned int> memberIndexs(sMemberSteps.size());
-            std::iota(memberIndexs.begin(), memberIndexs.end(), 0);
             std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, pState, t, &dState](const unsigned int& memberIndex){ 
                 TypeView<TypeStateVectorDynamic> dMemberState(memberState(dState.data(), memberIndex), memberStateSizes[memberIndex]); 
                 dMemberState = (*sMemberSteps[memberIndex])(cMemberState(pState, memberIndex), t); 
@@ -42,8 +40,6 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM> {
         }
 
         void update(std::vector<double>& state, const double& t) override {
-            std::vector<unsigned int> memberIndexs(sMemberSteps.size());
-            std::iota(memberIndexs.begin(), memberIndexs.end(), 0);
             std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, &state, t](const unsigned int& memberIndex){
                 sMemberSteps[memberIndex]->update(memberState(state.data(), memberIndex), t);
             });
@@ -61,7 +57,7 @@ class StepGroupDynamic : public StepObject<TypeVector, DIM> {
         void addMember(std::vector<double>& state, std::shared_ptr<TypeMemberStep> sMemberStep, const unsigned int& stateSize) {
             // state resize
             state.resize(state.size() + stateSize);
-            // regster member
+            // register member
             if (not memberStateIndexs.empty()) {
                 memberIndexs.push_back(memberIndexs.back() + 1);
                 memberStateIndexs.push_back(memberStateIndexs.back() + memberStateSizes.back());
@@ -169,6 +165,7 @@ class StepGroupDynamicHomogeneousBase : public StepGroupDynamic<TypeVector, DIM,
         virtual void addMember(std::vector<double>& state) = 0;
     public:
         virtual void registerState(std::vector<double>& state) = 0;
+        virtual void registerSize(const std::size_t& n) = 0;
 };
 
 template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeMemberStep>
@@ -188,6 +185,31 @@ class StepGroupDynamicHomogeneous : public StepGroupDynamicHomogeneousBase<TypeV
         void registerState(std::vector<double>& state) override {
             // register and unregister if state size does not correspond to size
             int difference = state.size() / sMemberStep->stateSize() - Type::size();
+            if(difference > 0) {
+                for(unsigned int i = 0; i < difference; i++) {
+                    // register member
+                    if (not memberStateIndexs.empty()) {
+                        memberIndexs.push_back(memberIndexs.back() + 1);
+                        memberStateIndexs.push_back(memberStateIndexs.back() + memberStateSizes.back());
+                    } else {
+                        memberIndexs.push_back(0);
+                        memberStateIndexs.push_back(0);
+                    }
+                    sMemberSteps.push_back(std::make_shared<TypeMemberStep>(*sMemberStep));
+                    memberStateSizes.push_back(sMemberStep->stateSize());
+                }
+            } else if (difference < 0) {
+                for(unsigned int i = 0; i < std::abs(difference); i++) {
+                    // unregister member
+                    sMemberSteps.pop_back();
+                    memberStateIndexs.pop_back();
+                    memberStateSizes.pop_back();
+                }
+            }
+        }
+        void registerSize(const std::size_t& n) override {
+            // register and unregister if state size does not correspond to size
+            int difference = n - Type::size();
             if(difference > 0) {
                 for(unsigned int i = 0; i < difference; i++) {
                     // register member
