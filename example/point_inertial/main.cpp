@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 // Lib includes
 #include "s0s/runge_kutta_fehlberg.h"
-#include "sl0/point_inertial.h"
+#include "sl0/point.h"
 // Simple includes
 #include "flow.h"
 
@@ -33,7 +33,7 @@ int main () {
     double tEnd = 1.0;
     unsigned int nt = std::round((tEnd - t0) / dt);
     // Create point
-    sl0::PointInertial<TypeVector, DIM, TypeView, TypeFlow, TypeSolver> point(std::make_shared<TypeFlow>(), 1.0);
+    sl0::Point<TypeVector, DIM, TypeView, TypeFlow, TypeSolver> point(std::make_shared<TypeFlow>());
     // Set initial state
     point.sStep->x(point.state.data()) = x0;
     point.t = t0;
@@ -46,6 +46,5 @@ int main () {
     std::cout << "Point advected following a an exponential flow, exp(" << point.t << ") = " << "\n";
     std::cout << "\n";
     std::cout << "Point Final Position : " << "\n" << point.sStep->x(point.state.data()) << "\n";
-    std::cout << "Point Final Velocity : " << "\n" << point.sStep->u(point.state.data()) << "\n";
     std::cout << std::endl;
 }
