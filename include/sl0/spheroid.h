@@ -55,7 +55,7 @@ class StepSpheroid : public StepAxis<TypeVector, DIM, TypeView> {
             // Compute linear velocity
             dX = sFlow->getVelocity(sX, t);
             // Compute rotaton velocity
-            TypeSpaceVector omega = sFlow->getVorticity(sX, t) + factor * (sAxis.cross(sFlow->getStrain(sX, t) * sAxis));
+            TypeSpaceVector omega = sFlow->getVorticity(sX, t) + factor * sAxis.cross(sFlow->getStrain(sX, t) * sAxis);
             dAxis = omega.cross(sAxis);
             // Return 
             return dState;
