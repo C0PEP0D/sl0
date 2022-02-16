@@ -27,19 +27,18 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
         using TypeMesh = m0sh::NonUniform<TypeVector<1>, TypeRef, TypeContainer>;
         using TypeMeshSub = m0sh::StructuredSub<TypeVector<1>, TypeRef, TypeContainer>;
     public:
-        StepChainDynamic(std::shared_ptr<TypeMemberStep> p_sMemberStep, const double& p_dl, const unsigned int& p_interpolationOrder) : Type(p_sMemberStep), dl(p_dl), interpolationOrder(p_interpolationOrder), coordinates(DIM) {
+        StepChainDynamic(std::shared_ptr<TypeMemberStep> p_sMemberStep, const double& p_dl, const unsigned int& p_interpolationOrder) : Type(p_sMemberStep), dl(p_dl), interpolationOrder(p_interpolationOrder), interpolationData(TypeMemberStep::StateSize) {
         }
 
         void update(std::vector<double>& state, const double& t) override {
-            Type::update(state, t);
-            // coordinates
-            for(std::size_t i = 0; i < DIM; i++) {
-                coordinates[i].resize(Type::size());
+            // interpolation data
+            for(std::size_t i = 0; i < TypeMemberStep::StateSize; i++) {
+                interpolationData[i].resize(Type::size());
             }
             for(std::size_t i = 0; i < Type::size(); i++) {
-                const TypeVector<DIM> position = sMemberStep->cX(cMemberState(state.data(), i));
-                for(std::size_t j = 0; j < DIM; j++) {
-                    coordinates[j][i] = position[j];
+                const double* pMemberState = cMemberState(state.data(), i);
+                for(std::size_t j = 0; j < TypeMemberStep::StateSize; j++) {
+                    interpolationData[j][i] = pMemberState[j];
                 }
             }
             // mesh
@@ -77,11 +76,13 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
             // interpolation
             std::for_each(std::execution::par_unseq, memberIndexs.cbegin(), memberIndexs.cend(), [this, &state, newDs](const unsigned int& memberIndex){ 
                 const TypeVector<1> s(memberIndex * newDs);
-                TypeView<TypeVector<DIM>> x = sMemberStep->x(memberState(state.data(), memberIndex));
-                for(std::size_t i = 0; i < DIM; i++) {
-                    x[i] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, coordinates[i], s, interpolationOrder + 1, false);
+                double* pMemberState = memberState(state.data(), memberIndex);
+                for(std::size_t i = 0; i < TypeMemberStep::StateSize; i++) {
+                    pMemberState[i] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, interpolationData[i], s, interpolationOrder + 1, false);
                 }
             });
+            // update
+            Type::update(state, t);
         }
     public:
         TypeVector<DIM> cX(const double* pState, const double& p_s) const {
@@ -193,7 +194,7 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
         unsigned int interpolationOrder;
         // shape description
         std::shared_ptr<TypeMesh> sMesh;
-        std::vector<std::vector<double>> coordinates; // TODO: iterate avec all state, not just coordinates ?
+        std::vector<std::vector<double>> interpolationData;
     public:
         using Type::memberIndexs;
     public:
