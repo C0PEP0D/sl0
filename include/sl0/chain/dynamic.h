@@ -12,6 +12,8 @@
 #include "p0l/interpolation.h"
 #include "m0sh/non_uniform.h"
 #include "m0sh/structured_sub.h"
+// test
+#include <Eigen/Dense> // TEST
 
 namespace sl0 {
 
@@ -21,6 +23,8 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 		using Type = StepGroupDynamicHomogeneous<TypeVector, DIM, TypeView, TypeMemberStep>;
 		using typename Type::TypeSpaceVector;
 		using typename Type::TypeStateVectorDynamic;
+	public:
+		using Line = Eigen::Hyperplane<double, 2>; // TEST
 	public:
 		template<typename ...Args>
 		using TypeContainer = std::vector<Args...>;
@@ -158,21 +162,29 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 		}
 	public:
 		std::vector<TypeSpaceVector> intersections(const double* pState) const {
+			std::vector<TypeSpaceVector> points;
 			for(unsigned int i = 0; i < Type::size() - 1; i++){
-				const TypeSpaceVector iSegmentX0 = sMemberStep->cX(cMemberState(pState, i));
-				const TypeSpaceVector iSegmentX1 = sMemberStep->cX(cMemberState(pState, i + 1));
-				const TypeSpaceVector iSegment = x1 - x0;
+				const TypeSpaceVector iX0 = sMemberStep->cX(cMemberState(pState, i));
+				const TypeSpaceVector iX1 = sMemberStep->cX(cMemberState(pState, i + 1));
+				const TypeSpaceVector iSegment = iX1 - iX0;
 				const TypeSpaceVector iLength = iSegment.norm();
 				const TypeSpaceVector iDir = iSegment / iLength;
-				for(unsigne int j = i + 1; j < Type::size() - 1; j++) {
-					const TypeSpaceVector jSegmentX0 = sMemberStep->cX(cMemberState(pState, j));
-					const TypeSpaceVector jSegmentX1 = sMemberStep->cX(cMemberState(pState, j + 1));
-					const TypeSpaceVector jSegment = x1 - x0;
+				Line iLine = Line::Through(TypeVector<2>(iX0(0), iX0(1)), TypeVector<2>(iX1(0), iX1(1)));
+				for(unsigned int j = i + 1; j < Type::size() - 1; j++) {
+					const TypeSpaceVector jX0 = sMemberStep->cX(cMemberState(pState, j));
+					const TypeSpaceVector jX1 = sMemberStep->cX(cMemberState(pState, j + 1));
+					const TypeSpaceVector jSegment = jX1 - jX0;
 					const TypeSpaceVector jLength = jSegment.norm();
 					const TypeSpaceVector jDir = jSegment / jLength;
+					Line jLine = Line::Through(TypeVector<2>({jX0(0), jX0(1)}), TypeVector<2>({jX1(0), jX1(1)}));
+					// Dirty intersection code
+					const TypeVector<2> point = iLine.intersection(jLine);
+					if ((point - iX0).dot(iDir) > 0.0 && (point - iX0).dot(iDir) < iLength && (point - jX0).dot(jDir) > 0.0 && (point - jX0).dot(jDir) < jLength) {
+						points.emplace_back({point(0), point(1)});
+					}
 				}
 			}
-			return xSegments.front().first;
+			return points;
 		}
 	public:
 		// parameters

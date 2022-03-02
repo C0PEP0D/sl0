@@ -1,5 +1,5 @@
-#ifndef SL0_OBJECT_H
-#define SL0_OBJECT_H
+#ifndef SL0_MANAGER_H
+#define SL0_MANAGER_H
 #pragma once
 
 // std includes
@@ -22,7 +22,7 @@ class StepManager {
         virtual void update(std::vector<std::vector<double>>& states, const double& t) {
         };
         // Returns object's positions
-        virtual std::vector<TypeSpaceVector> positions(const double* pState) const = 0;
+        // virtual std::vector<TypeSpaceVector> positions(const double* pState) const = 0;
 };
 
 template<typename TypeSolver, typename _TypeStep>
