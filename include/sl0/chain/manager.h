@@ -9,48 +9,54 @@
 namespace sl0 {
 
 template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, template<typename...> class TypeRef, typename TypeMemberStep>
-class StepChainManager : public StepManager<TypeVector, DIM> {
+class StepChainManager : public StepManagerHomogeneous<TypeVector, DIM, StepChainDynamic<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>> {
 	public:
-		using Type = StepManager<TypeVector, DIM>;
+		using Type = StepManagerHomogeneous<TypeVector, DIM, StepChainDynamic<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>>;
 		using typename Type::TypeSpaceVector;
 		using typename Type::TypeStateVectorDynamic;
+		using typename Type::TypeManagedStep;
 	public:
-		using TypeStepChainDynamic = StepChainDynamic<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>;
-	public:
-		StepChainManager() {
-		}
-
-		TypeStateVectorDynamic operator()(const double* pState, const double& t, const unsigned int index) const override {
-			return (*sChainSteps[index])(pState, t);
+		StepChainManager(std::shared_ptr<TypeMemberStep> sMemberStep, const double& dl, const unsigned int& interpolationOrder) : Type(std::make_shared<TypeManagedStep>(sMemberStep, dl, interpolationOrder)) {
 		}
 
 		void update(std::vector<std::vector<double>>& states, const double& t) override {
-			// Solve intersections
-			// TODO
-			// Update all chains
-			for (unsigned int index = 0; index < states.size(); index++) {
-            	(*sChainSteps[index]).update(states[index], t);
+			Type::update(states, t);
+			// solve intersections
+			const unsigned int n = states.size();
+			for (unsigned int chainIndex = 0; chainIndex < n; chainIndex++) {
+				//std::cout << (*sManagedSteps[chainIndex]).intersections(states[chainIndex].data()).size() << std::endl;
+            	for(auto intersectionData : (*sManagedSteps[chainIndex]).intersections(states[chainIndex].data())) {
+            		//std::cout << intersectionData.point << std::endl;
+            		//std::cout << intersectionData.i << std::endl;
+            		//std::cout << intersectionData.j << std::endl;
+            		//std::cout << intersectionData.iS << std::endl;
+            		//std::cout << intersectionData.jS << std::endl;
+            		const TypeStateVectorDynamic intersectionState = 0.5 * (sManagedSteps[chainIndex]->cState(states[chainIndex].data(), intersectionData.iS) + sManagedSteps[chainIndex]->cState(states[chainIndex].data(), intersectionData.jS));
+            		// add new chain
+            		states.emplace_back(states[chainIndex].begin() + intersectionData.i + 1, states[chainIndex].begin() + intersectionData.j + 1);
+            		states[chainIndex].erase(states[chainIndex].begin() + intersectionData.i + 1, states[chainIndex].begin() + intersectionData.j + 1);
+            		/*const unsigned int newChainIndex = states.size() - 1;
+            		sManagedSteps.push_back(std::make_shared<TypeManagedStep>(std::make_shared<TypeMemberStep>(*sManagedSteps[chainIndex]->sMemberStep), sManagedSteps[chainIndex]->dl, sManagedSteps[chainIndex]->interpolationOrder));
+            		//// add new chain members
+            		sManagedSteps[newChainIndex]->addMember(states[newChainIndex]);
+            		TypeView<TypeStateVectorDynamic>(sManagedSteps[newChainIndex]->memberState(states[newChainIndex].data(), 0), intersectionState.size()) = intersectionState;
+            		for(unsigned int memberIndex = intersectionData.i + 1; memberIndex < intersectionData.j + 1; memberIndex++) {
+            			sManagedSteps[newChainIndex]->addMember(states[newChainIndex]);
+            				TypeView<TypeStateVectorDynamic>(sManagedSteps[newChainIndex]->memberState(states[newChainIndex].data(), sManagedSteps[newChainIndex]->size() - 1), intersectionState.size()) = TypeView<const TypeStateVectorDynamic>(sManagedSteps[chainIndex]->cMemberState(states[chainIndex].data(), memberIndex), intersectionState.size());
+            		}
+            		sManagedSteps[newChainIndex]->addMember(states[newChainIndex]);
+            		TypeView<TypeStateVectorDynamic>(sManagedSteps[newChainIndex]->memberState(states[newChainIndex].data(), sManagedSteps[newChainIndex]->size() - 1), intersectionState.size()) = intersectionState; // TODO: should be a periodicly closed line
+					// update original chain
+					TypeView<TypeStateVectorDynamic>(sManagedSteps[chainIndex]->memberState(states[chainIndex].data(), intersectionData.i + 1), intersectionState.size()) = intersectionState;
+					for(unsigned int memberIndex = intersectionData.j; memberIndex > intersectionData.i + 1; memberIndex--) {
+            			sManagedSteps[chainIndex]->removeMember(states[newChainIndex], memberIndex);
+            		}*/
+            	}
             }
+            Type::registerStates(states);
 		}
 	public:
-		// member management
-		void addChain(std::vector<std::vector<double>>& states, std::shared_ptr<TypeStepChainDynamic> sChainStep) {
-			states.emplace_back(sChainStep->stateSize());
-			sChainSteps.push_back(sChainStep);
-		}
-
-		void removeChain(std::vector<std::vector<double>>& states, const unsigned int& chainIndex) {
-			states.erase(states.begin() + chainIndex);
-			sChainSteps.erase(sChainSteps.begin() + chainIndex);
-		}
-
-
-		void removeChain(std::vector<std::vector<double>>& states) {
-			states.pop_back();
-			sChainSteps.pop_back();
-		}
-	public:
-		std::vector<std::shared_ptr<TypeStepChainDynamic>> sChainSteps;
+		using Type::sManagedSteps;
 };
 
 template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, template<typename...> class TypeRef, typename TypeMemberStep, typename TypeSolver>
@@ -58,7 +64,7 @@ class ChainManager : public Manager<TypeSolver, StepChainManager<TypeVector, DIM
 	public:
 		using TypeStep = StepChainManager<TypeVector, DIM, TypeView, TypeRef, TypeMemberStep>;
 	public:
-		ChainManager() : Manager<TypeSolver, TypeStep>(std::make_shared<TypeStep>()) {
+		ChainManager(std::shared_ptr<TypeMemberStep> sMemberStep, const double& dl, const unsigned int& interpolationOrder) : Manager<TypeSolver, TypeStep>(std::make_shared<TypeStep>(sMemberStep, dl, interpolationOrder)) {
 		}
 	public:
 		// Inherited

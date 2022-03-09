@@ -42,17 +42,16 @@ int main () {
     double l = 1.0;
     // Create chain
     std::shared_ptr<TypeStepPoint> sStepPoint = std::make_shared<TypeStepPoint>(std::make_shared<Flow>());
-    std::shared_ptr<TypeStepChainDynamic> sStepChainDynamic = std::make_shared<TypeStepChainDynamic>(sStepPoint, dl, 4);
-    sl0::ChainManager<TypeVector, DIM, TypeView, TypeRef, TypeStepPoint, TypeSolver> chain;
+    sl0::ChainManager<TypeVector, DIM, TypeView, TypeRef, TypeStepPoint, TypeSolver> chain(sStepPoint, dl, 4);
     // Init
-    chain.sStep->addChain(chain.states, sStepChainDynamic);
+    chain.sStep->addManaged(chain.states);
     for(std::size_t i = 0; i < np; i++) {
-        chain.sStep->sChainSteps[0]->addMember(chain.states[0]);
-        sStepPoint->x(chain.sStep->sChainSteps[0]->memberState(chain.states[0].data(), i)) = x0;
-        sStepPoint->x(chain.sStep->sChainSteps[0]->memberState(chain.states[0].data(), i))[0] += i * dl;
+        chain.sStep->sManagedSteps[0]->addMember(chain.states[0]);
+        sStepPoint->x(chain.sStep->sManagedSteps[0]->memberState(chain.states[0].data(), i)) = x0;
+        sStepPoint->x(chain.sStep->sManagedSteps[0]->memberState(chain.states[0].data(), i))[0] += i * dl;
     }
-    std::cout << "Init Length : " << "\n" << chain.sStep->sChainSteps[0]->length(chain.states[0].data()) << "\n";
-    std::cout << "Init Size : " << "\n" << chain.sStep->sChainSteps[0]->size() << "\n";
+    std::cout << "Init Length : " << "\n" << chain.sStep->sManagedSteps[0]->length(chain.states[0].data()) << "\n";
+    std::cout << "Init Size : " << "\n" << chain.sStep->sManagedSteps[0]->size() << "\n";
     chain.t = t0;
     // Computation
     std::cout << "Computing" << "\n";
@@ -63,8 +62,8 @@ int main () {
     std::cout << "\n";
     std::cout << "Chain advected following a an exponential flow, exp(" << chain.t << ") = " << "\n";
     std::cout << "\n";
-    std::cout << "Final Length : " << "\n" << chain.sStep->sChainSteps[0]->length(chain.states[0].data()) << "\n";
-    std::cout << "Final Size : " << "\n" << chain.sStep->sChainSteps[0]->size() << "\n";
+    std::cout << "Final Length : " << "\n" << chain.sStep->sManagedSteps[0]->length(chain.states[0].data()) << "\n";
+    std::cout << "Final Size : " << "\n" << chain.sStep->sManagedSteps[0]->size() << "\n";
     std::cout << std::endl;
 }
 

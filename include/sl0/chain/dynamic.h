@@ -7,6 +7,7 @@
 #include <vector>
 #include <numeric> // iota
 #include <execution>
+#include <tuple>
 // module includes
 #include "sl0/group/dynamic.h"
 #include "p0l/interpolation.h"
@@ -47,18 +48,18 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			}
 			// mesh
 			double l = 0.0;
-			TypeContainer<double> gridPoints(Type::size());
-			gridPoints[0] = 0.0;
+			sMembers.resize(Type::size());
+			sMembers[0] = 0.0;
 			for(std::size_t i = 1; i < Type::size(); i++){ 
 				const auto x1 = sMemberStep->cX(cMemberState(state.data(), i));
 				const auto x0 = sMemberStep->cX(cMemberState(state.data(), i - 1));
 				l += (x1 - x0).norm();
-				gridPoints[i] = l;
+				sMembers[i] = l;
 			}
 			for(std::size_t i = 1; i < Type::size(); i++){ 
-				gridPoints[i] /= l;
+				sMembers[i] /= l;
 			}
-			sMesh = std::make_shared<TypeMesh>(gridPoints, false);
+			sMesh = std::make_shared<TypeMesh>(sMembers, false);
 			// update size
 			const double newLength = length(state.data());
 			const std::size_t newSize = std::ceil(newLength/dl);
@@ -89,36 +90,23 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			Type::update(state, t);
 		}
 	public:
-		TypeVector<DIM> cX(const double* pState, const double& p_s) const {
+		TypeStateVectorDynamic cState(const double* pState, const double& p_s) const {
 			const TypeVector<1> s(p_s);
-			// coordinates
-			TypeContainer<TypeContainer<double>> tmpCoordinates(DIM, TypeContainer<double>(Type::size())); // TODO: do this better
-			for(std::size_t i = 0; i < Type::size(); i++) {
-				const TypeVector<DIM> position = sMemberStep->cX(cMemberState(pState, i));
-				for(std::size_t j = 0; j < DIM; j++) {
-					tmpCoordinates[j][i] = position[j];
-				}
-			}
-			// mesh
-			double l = 0.0;
-			TypeContainer<double> gridPoints(Type::size());
-			gridPoints[0] = 0.0;
-			for(std::size_t i = 1; i < Type::size(); i++){ 
-				const TypeSpaceVector x1 = sMemberStep->cX(cMemberState(pState, i));
-				const TypeSpaceVector x0 = sMemberStep->cX(cMemberState(pState, i - 1));
-				l += (x1 - x0).norm();
-				gridPoints[i] = l;
-			}
-			for(std::size_t i = 1; i < Type::size(); i++){ 
-				gridPoints[i] /= l;
-			}
-			std::shared_ptr<TypeMesh> sTmpMesh = std::make_shared<TypeMesh>(gridPoints, false);
 			// interpolate for each coordinates
-			TypeVector<DIM> x;
-			for(std::size_t j = 0; j < DIM; j++) {
-				x[j] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sTmpMesh, tmpCoordinates[j], s, interpolationOrder + 1, false);
+			TypeStateVectorDynamic state(sMemberStep->stateSize());
+			for(std::size_t j = 0; j < sMemberStep->stateSize(); j++) {
+				state[j] = p0l::lagrangeMeshPoint<TypeMesh, TypeContainer, double, TypeVector<1>, TypeRef, TypeMeshSub>(sMesh, interpolationData[j], s, interpolationOrder + 1, false);
 			}
-			return x;
+			return state;
+		}
+	public:
+		TypeVector<DIM> cX(const double* pState, const double& p_s) const {
+			const TypeStateVectorDynamic state = cState(pState, p_s);
+			return sMemberStep->cX(state.data());
+		}
+	public:
+		double cS(const unsigned int memberIndex) const {
+			return memberIndex * 1.0 / (Type::size() - 1);
 		}
 	public:
 		double length(const double* pState) const {
@@ -131,8 +119,18 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			return l;
 		}
 	public:
-		TypeSpaceVector closest(const double* pState, const TypeSpaceVector& x) const {
-			std::vector<std::pair<TypeSpaceVector, double>> xSegments(Type::size() - 1);
+		struct ClosestPointData {
+			public:
+				ClosestPointData() {
+				}
+			public:
+				TypeSpaceVector x;
+				double distance;
+				double s;
+		};
+		
+		ClosestPointData closest(const double* pState, const TypeSpaceVector& x) const {
+			std::vector<ClosestPointData> closestPointsData(Type::size() - 1);
 			for(std::size_t i = 1; i < Type::size(); i++){ 
 				const TypeSpaceVector x1 = sMemberStep->cX(cMemberState(pState, i));
 				const TypeSpaceVector x0 = sMemberStep->cX(cMemberState(pState, i-1));
@@ -142,55 +140,107 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 				const TypeSpaceVector dSegment = (x1 - x0) / lSegment;
 				const double sSegment = (x - x0).dot(dSegment);
 				// closest point on segment
+				double s;
 				TypeSpaceVector xSegment;
 				if(sSegment > 0.0) {
 					if (sSegment < lSegment) {
 						xSegment = x0 + dSegment * sSegment;
+						s = cS(i - 1) + sSegment/lSegment * (cS(i) - cS(i - 1));
 					} else {
 						xSegment = x1;
+						s = cS(i);
 					}
 				} else {
 					xSegment = x0;
+					s = cS(i - 1);
 				}
-				xSegments[i-1].first = xSegment;
-				xSegments[i-1].second = (x - xSegment).norm();
+				closestPointsData[i - 1].x = xSegment;
+				closestPointsData[i - 1].distance = (x - xSegment).norm();
+				closestPointsData[i - 1].s = s;
 			}
-			std::sort(xSegments.begin(), xSegments.end(), [](std::pair<TypeSpaceVector, double> a, std::pair<TypeSpaceVector, double> b) {
-				return a.second < b.second;
+			std::sort(closestPointsData.begin(), closestPointsData.end(), [](ClosestPointData a, ClosestPointData b) {
+				return a.distance < b.distance;
 			});
-			return xSegments.front().first;
+			return closestPointsData.front();
 		}
 	public:
-		std::vector<TypeSpaceVector> intersections(const double* pState) const {
-			std::vector<TypeSpaceVector> points;
+		struct IntersectionData {
+			public:
+				IntersectionData() {
+				}
+			public:
+				TypeSpaceVector point;
+				unsigned int i;
+				unsigned int j;
+				double iS;
+				double jS;
+		};
+		
+		std::vector<IntersectionData> intersections(const double* pState) const {
+			std::vector<IntersectionData> intersectionsData;
 			for(unsigned int i = 0; i < Type::size() - 1; i++){
 				const TypeSpaceVector iX0 = sMemberStep->cX(cMemberState(pState, i));
 				const TypeSpaceVector iX1 = sMemberStep->cX(cMemberState(pState, i + 1));
 				const TypeSpaceVector iSegment = iX1 - iX0;
-				const TypeSpaceVector iLength = iSegment.norm();
+				const double iLength = iSegment.norm();
 				const TypeSpaceVector iDir = iSegment / iLength;
 				Line iLine = Line::Through(TypeVector<2>(iX0(0), iX0(1)), TypeVector<2>(iX1(0), iX1(1)));
-				for(unsigned int j = i + 1; j < Type::size() - 1; j++) {
+				for(unsigned int j = i + 2; j < Type::size() - 1; j++) {
 					const TypeSpaceVector jX0 = sMemberStep->cX(cMemberState(pState, j));
 					const TypeSpaceVector jX1 = sMemberStep->cX(cMemberState(pState, j + 1));
 					const TypeSpaceVector jSegment = jX1 - jX0;
-					const TypeSpaceVector jLength = jSegment.norm();
+					const double jLength = jSegment.norm();
 					const TypeSpaceVector jDir = jSegment / jLength;
 					Line jLine = Line::Through(TypeVector<2>({jX0(0), jX0(1)}), TypeVector<2>({jX1(0), jX1(1)}));
-					// Dirty intersection code
-					const TypeVector<2> point = iLine.intersection(jLine);
+					const TypeVector<2> point2d = iLine.intersection(jLine);
+					const TypeSpaceVector point = TypeSpaceVector({point2d(0), point2d(1), 0.25 * (iX0(2) + iX1(2) + jX0(2) + jX1(2))});
 					if ((point - iX0).dot(iDir) > 0.0 && (point - iX0).dot(iDir) < iLength && (point - jX0).dot(jDir) > 0.0 && (point - jX0).dot(jDir) < jLength) {
-						points.emplace_back({point(0), point(1)});
+						IntersectionData newIntersectionData;
+						newIntersectionData.point = point;
+						newIntersectionData.i = i;
+						newIntersectionData.j = j;
+						newIntersectionData.iS = cS(i) + (point - iX0).dot(iDir)/iLength * (cS(i + 1) - cS(i));
+						newIntersectionData.jS = cS(j) + (point - jX0).dot(jDir)/jLength * (cS(j + 1) - cS(j));
+						intersectionsData.push_back(newIntersectionData);
 					}
 				}
 			}
-			return points;
+			return intersectionsData;
+		}
+	public:
+		void registerState(const std::vector<double>& state) override {
+			Type::registerState(state);
+			// update
+			for(std::size_t i = 0; i < TypeMemberStep::StateSize; i++) {
+				interpolationData[i].resize(Type::size());
+			}
+			for(std::size_t i = 0; i < Type::size(); i++) {
+				const double* pMemberState = cMemberState(state.data(), i);
+				for(std::size_t j = 0; j < TypeMemberStep::StateSize; j++) {
+					interpolationData[j][i] = pMemberState[j];
+				}
+			}
+			// mesh
+			double l = 0.0;
+			sMembers.resize(Type::size());
+			sMembers[0] = 0.0;
+			for(std::size_t i = 1; i < Type::size(); i++){ 
+				const auto x1 = sMemberStep->cX(cMemberState(state.data(), i));
+				const auto x0 = sMemberStep->cX(cMemberState(state.data(), i - 1));
+				l += (x1 - x0).norm();
+				sMembers[i] = l;
+			}
+			for(std::size_t i = 1; i < Type::size(); i++){ 
+				sMembers[i] /= l;
+			}
+			sMesh = std::make_shared<TypeMesh>(sMembers, false);
 		}
 	public:
 		// parameters
 		double dl;
 		unsigned int interpolationOrder;
-		// shape description
+		// shape description updated at each time step
+		std::vector<double> sMembers;
 		std::shared_ptr<TypeMesh> sMesh;
 		std::vector<std::vector<double>> interpolationData;
 	public:
