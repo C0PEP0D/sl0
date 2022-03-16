@@ -164,50 +164,6 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			return closestPointsData.front();
 		}
 	public:
-		struct IntersectionData {
-			public:
-				IntersectionData() {
-				}
-			public:
-				TypeSpaceVector point;
-				unsigned int i;
-				unsigned int j;
-				double iS;
-				double jS;
-		};
-		
-		std::vector<IntersectionData> intersections(const double* pState) const {
-			std::vector<IntersectionData> intersectionsData;
-			for(unsigned int i = 0; i < Type::size() - 1; i++){
-				const TypeSpaceVector iX0 = sMemberStep->cX(cMemberState(pState, i));
-				const TypeSpaceVector iX1 = sMemberStep->cX(cMemberState(pState, i + 1));
-				const TypeSpaceVector iSegment = iX1 - iX0;
-				const double iLength = iSegment.norm();
-				const TypeSpaceVector iDir = iSegment / iLength;
-				Line iLine = Line::Through(TypeVector<2>(iX0(0), iX0(1)), TypeVector<2>(iX1(0), iX1(1)));
-				for(unsigned int j = i + 2; j < Type::size() - 1; j++) {
-					const TypeSpaceVector jX0 = sMemberStep->cX(cMemberState(pState, j));
-					const TypeSpaceVector jX1 = sMemberStep->cX(cMemberState(pState, j + 1));
-					const TypeSpaceVector jSegment = jX1 - jX0;
-					const double jLength = jSegment.norm();
-					const TypeSpaceVector jDir = jSegment / jLength;
-					Line jLine = Line::Through(TypeVector<2>({jX0(0), jX0(1)}), TypeVector<2>({jX1(0), jX1(1)}));
-					const TypeVector<2> point2d = iLine.intersection(jLine);
-					const TypeSpaceVector point = TypeSpaceVector({point2d(0), point2d(1), 0.25 * (iX0(2) + iX1(2) + jX0(2) + jX1(2))});
-					if ((point - iX0).dot(iDir) > 0.0 && (point - iX0).dot(iDir) < iLength && (point - jX0).dot(jDir) > 0.0 && (point - jX0).dot(jDir) < jLength) {
-						IntersectionData newIntersectionData;
-						newIntersectionData.point = point;
-						newIntersectionData.i = i;
-						newIntersectionData.j = j;
-						newIntersectionData.iS = cS(i) + (point - iX0).dot(iDir)/iLength * (cS(i + 1) - cS(i));
-						newIntersectionData.jS = cS(j) + (point - jX0).dot(jDir)/jLength * (cS(j + 1) - cS(j));
-						intersectionsData.push_back(newIntersectionData);
-					}
-				}
-			}
-			return intersectionsData;
-		}
-	public:
 		void registerState(const std::vector<double>& state) override {
 			Type::registerState(state);
 			// update

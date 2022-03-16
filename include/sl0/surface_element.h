@@ -17,7 +17,7 @@ class StepSurfaceElement : public StepObjectStatic<TypeVector, DIM, 2*DIM + 1> {
 		StepSurfaceElement(const std::shared_ptr<TypeFlow>& p_sFlow) : Type(), sFlow(p_sFlow) {
 		}
 		TypeStateVectorDynamic operator()(const double* pState, const double& t) const override {
-			TypeStateVectorDynamic dState(TypeStepAxis::stateSize());
+			TypeStateVectorDynamic dState(Type::stateSize());
 			// Get data from state
 			const TypeView<const TypeSpaceVector> sX = cX(pState);
 			const TypeView<const TypeSpaceVector> sAxis = cAxis(pState);
@@ -26,9 +26,11 @@ class StepSurfaceElement : public StepObjectStatic<TypeVector, DIM, 2*DIM + 1> {
 			TypeView<TypeSpaceVector> dAxis = axis(dState.data());
 			// Compute linear velocity
 			dX = sFlow->getVelocity(sX, t);
-			// Compute rotaton velocity
-			TypeSpaceVector omega = sFlow->getVorticity(sX, t) - sAxis.cross(sFlow->getStrain(sX, t) * sAxis);
-			dAxis = omega.cross(sAxis);
+			// Compute axis velocity (rotation velocity)
+			auto velocityGradients = sFlow->getVelocityGradients(sX, t);
+            auto skewVelocityGradients = 0.5 * (velocityGradients - velocityGradients.transpose());
+            auto symVelocityGradients = 0.5 * (velocityGradients + velocityGradients.transpose());
+			dAxis = skewVelocityGradients * sAxis - (symVelocityGradients * sAxis - (sAxis.dot(symVelocityGradients * sAxis)) * sAxis);
 			// Return 
 			return dState;
 		}
@@ -39,16 +41,16 @@ class StepSurfaceElement : public StepObjectStatic<TypeVector, DIM, 2*DIM + 1> {
 		TypeView<TypeSpaceVector> x(double* pState) const {
 			return TypeView<TypeSpaceVector>(pState);
 		}
-		TypeView<const TypeSpaceVector> cAxis(const double* pState) const override {
+		TypeView<const TypeSpaceVector> cAxis(const double* pState) const {
 			return TypeView<const TypeSpaceVector>(pState + DIM);
 		}
-		TypeView<TypeSpaceVector> axis(double* pState) const override {
+		TypeView<TypeSpaceVector> axis(double* pState) const {
 			return TypeView<TypeSpaceVector>(pState + DIM);
 		}
-		const double* cScalar(const double* pState) const override {
+		const double* cScalar(const double* pState) const {
 			return pState + 2*DIM;
 		}
-		double* scalar(double* pState) const override {
+		double* scalar(double* pState) const {
 			return pState + 2*DIM;
 		}
 	public:
