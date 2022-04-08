@@ -56,12 +56,6 @@ class StepObjectStatic : public StepObjectStaticBase<TypeVector, DIM> {
     public:
         StepObjectStatic() {
         }
-        // Applies non linear changes to state
-        void update(std::vector<double>& state, const double& t) override {
-            update(state.data(), t);
-        }
-        virtual void update(double* pState, const double& t) {
-        };
         // Returns current state size
         unsigned int stateSize() const override {
             return StateSize;
