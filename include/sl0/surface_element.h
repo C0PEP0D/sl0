@@ -47,8 +47,8 @@ class StepSurfaceElement : public StepObjectStatic<TypeVector, DIM, 2*DIM + 1> {
 		TypeView<TypeSpaceVector> axis(double* pState) const {
 			return TypeView<TypeSpaceVector>(pState + DIM);
 		}
-		const double* cScalar(const double* pState) const {
-			return pState + 2*DIM;
+		double cScalar(const double* pState) const {
+			return *(pState + 2*DIM);
 		}
 		double* scalar(double* pState) const {
 			return pState + 2*DIM;
