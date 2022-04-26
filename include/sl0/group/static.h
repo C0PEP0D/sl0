@@ -23,7 +23,11 @@ class StepGroupStatic : public StepObjectStatic<TypeVector, DIM, Size * _TypeMem
         using typename Type::TypeStateVectorDynamic;
         using TypeMemberStep = _TypeMemberStep;
     public:
-        StepGroupStatic(std::shared_ptr<TypeMemberStep> p_sMemberStep) : sMemberStep(p_sMemberStep), sMemberSteps(Size, std::make_shared<TypeMemberStep>(*p_sMemberStep)), memberIndexs(Size) {
+        StepGroupStatic(std::shared_ptr<TypeMemberStep> p_sMemberStep) : sMemberStep(p_sMemberStep), sMemberSteps(Size), memberIndexs(Size) {
+        	for(unsigned int i = 0; i < Size; i++) {
+        		sMemberSteps[i] = std::make_shared<TypeMemberStep>(*p_sMemberStep); // ensures that each step is a copy
+        	}
+        	// members indexs
             std::iota(memberIndexs.begin(), memberIndexs.end(), 0);
         }
     public:
