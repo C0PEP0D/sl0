@@ -21,7 +21,7 @@ TypeVector Flow<TypeVector, TypeMatrix, TypeRef>::getVelocity(const TypeRef<cons
 
 template<typename TypeVector, typename TypeMatrix, template<typename...> class TypeRef>
 TypeMatrix Flow<TypeVector, TypeMatrix, TypeRef>::getVelocityGradients(const TypeRef<const TypeVector>& x, const double& t) const {
-    TypeMatrix grads; grads.fill(0.0);
+    TypeMatrix grads = TypeMatrix::Zero(); 
     grads(0,1) = gamma;
     return grads;
 }
