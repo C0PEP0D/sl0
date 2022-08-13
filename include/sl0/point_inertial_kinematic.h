@@ -37,7 +37,8 @@ class StepPointInertialKinematic : public StepObjectStatic<TypeVector, DIM, DIM>
 		}
 
 		TypeSpaceVector cU(const double* pState, const double& t) const {
-			return sFlow->getVelocity(cX(pState), t) + ((sFlow->getVelocityGradients(cX(pState), t) * -delay).exp()) * velocity;
+			//return (TypeSpaceMatrix::Identity() + delay * sFlow->getVelocityGradients(cX(pState), t)).inverse() * (sFlow->getVelocity(cX(pState), t) + velocity - delay * sFlow->getAcceleration(cX(pState), t));
+			return (TypeSpaceMatrix::Identity() + delay * sFlow->getVelocityGradients(cX(pState), t)).inverse() * (sFlow->getVelocity(cX(pState), t) + velocity);
 		}
 	public:
 		std::vector<TypeSpaceVector> positions(const double* pState) const override {
