@@ -19,7 +19,7 @@ class StepPointInertialKinematic : public StepObjectStatic<TypeVector, DIM, DIM>
 		using typename Type::TypeSpaceVector;
 		using typename Type::TypeStateVectorDynamic;
 	public:
-		StepPointInertialKinematic(const std::shared_ptr<TypeFlow>& p_sFlow, const double p_delay, const TypeSpaceVector p_velocity) : sFlow(p_sFlow), delay(p_delay), velocity(p_velocity) {
+		StepPointInertialKinematic(const std::shared_ptr<TypeFlow>& p_sFlow, const double p_delay, const TypeSpaceVector p_velocity, const double p_dt) : sFlow(p_sFlow), delay(p_delay), velocity(p_velocity), dt(p_dt) {
 		}
 
 		TypeStateVectorDynamic operator()(const double* pState, const double& t) const override {
@@ -40,7 +40,8 @@ class StepPointInertialKinematic : public StepObjectStatic<TypeVector, DIM, DIM>
 			//return (TypeSpaceMatrix::Identity() + delay * sFlow->getVelocityGradients(cX(pState), t)).inverse() * (sFlow->getVelocity(cX(pState), t) + velocity - delay * sFlow->getAcceleration(cX(pState), t));
 			const auto velocityGradients = sFlow->getVelocityGradients(cX(pState), t);
 			const auto identity = velocityGradients.Identity();
-			return (identity + delay * velocityGradients).inverse() * (sFlow->getVelocity(cX(pState), t) + velocity);
+			const auto acceleration = (sFlow->getVelocity(cX(pState), t + 0.5 * dt) - sFlow->getVelocity(cX(pState), t - 0.5 * dt)) / dt;
+			return (identity + delay * velocityGradients).colPivHouseholderQr().solve(sFlow->getVelocity(cX(pState), t) + velocity + delay * acceleration);
 		}
 	public:
 		std::vector<TypeSpaceVector> positions(const double* pState) const override {
@@ -50,6 +51,7 @@ class StepPointInertialKinematic : public StepObjectStatic<TypeVector, DIM, DIM>
 		std::shared_ptr<TypeFlow> sFlow;
 		double delay;
 		TypeSpaceVector velocity;
+		double dt; // used to compute eulerian acceleartion
 };
 
 template<template<int> typename TypeVector, unsigned int DIM, template<typename...> class TypeView, typename TypeFlow, typename TypeSolver>
@@ -59,7 +61,7 @@ class PointInertialKinematic : public ObjectStatic<TypeSolver, StepPointInertial
 		using Type = ObjectStatic<TypeSolver, TypeStep>;
 		using typename Type::TypeSpaceVector;
 	public:
-		PointInertialKinematic(const std::shared_ptr<TypeFlow>& sFlow, const double delay, const TypeSpaceVector velocity) : ObjectStatic<TypeSolver, TypeStep>::ObjectStatic(std::make_shared<TypeStep>(sFlow, delay, velocity)) {
+		PointInertialKinematic(const std::shared_ptr<TypeFlow>& sFlow, const double delay, const TypeSpaceVector velocity, const double dt) : ObjectStatic<TypeSolver, TypeStep>::ObjectStatic(std::make_shared<TypeStep>(sFlow, delay, velocity, dt)) {
 		}
 	public:
 		using Type::sSolver;
