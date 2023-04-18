@@ -22,7 +22,7 @@ class StepChainManager : public StepManagerHomogeneous<TypeVector, DIM, StepChai
 		void update(std::vector<std::vector<double>>& states, const double& t) override {
 			Type::update(states, t);
 			// solve intersections
-			std::vector<bool> isChainInGroupB(states.size(), false); // Nice but not enough to segregate stuff
+			std::vector<bool> isChainVirtual(states.size(), false); // Nice but not enough to segregate stuff
 			// TODO: DEAL WITH j + 1 = 0
 			for (unsigned int chainIndex = 0; chainIndex < states.size(); chainIndex++) {
 				// std::cout << "intersection nb: " << (*sManagedSteps[chainIndex]).intersections(states[chainIndex].data()).size() << std::endl;
@@ -32,40 +32,27 @@ class StepChainManager : public StepManagerHomogeneous<TypeVector, DIM, StepChai
             		const TypeStateVectorDynamic intersectionState = 0.5 * (sManagedSteps[chainIndex]->cState(states[chainIndex].data(), firstIntersectionData.iS) + sManagedSteps[chainIndex]->cState(states[chainIndex].data(), firstIntersectionData.jS));
             		// add new chain
             		states.emplace_back(states[chainIndex].begin() + (firstIntersectionData.i + 1) * TypeManagedStep::TypeMemberStep::StateSize, states[chainIndex].begin() + (firstIntersectionData.j + 2) * TypeManagedStep::TypeMemberStep::StateSize);
-            		isChainInGroupB.emplace_back(!isChainInGroupB[chainIndex]);
             		states[chainIndex].erase(states[chainIndex].begin() + (firstIntersectionData.i + 1) * TypeManagedStep::TypeMemberStep::StateSize, states[chainIndex].begin() + (firstIntersectionData.j + 1) * TypeManagedStep::TypeMemberStep::StateSize);
             		Type::registerStates(states);
             		const unsigned int newChainIndex = states.size() - 1;
             		// set intersections states
             		TypeView<TypeStateVectorDynamic>(sManagedSteps[newChainIndex]->memberState(states[newChainIndex].data(), sManagedSteps[newChainIndex]->size() - 1), intersectionState.size()) = intersectionState;
 					TypeView<TypeStateVectorDynamic>(sManagedSteps[chainIndex]->memberState(states[chainIndex].data(), firstIntersectionData.i + 1), intersectionState.size()) = intersectionState;
+					// set virtual
+					if ((*sManagedSteps[chainIndex]).length(states[chainIndex].data()) < (*sManagedSteps[newChainIndex]).length(states[newChainIndex].data())) {
+						isChainVirtual[chainIndex] = true;
+					} else {
+						isChainVirtual[chainIndex] = false;
+					}
+					isChainVirtual.emplace_back(!isChainVirtual[chainIndex]);
             	}
             }
-            // compute group length
-            double lengthGroupA = 0.0;
-            double lengthGroupB = 0.0;
-            for (unsigned int chainIndex = 0; chainIndex < states.size(); chainIndex++) {
-            	if (isChainInGroupB[chainIndex]) {
-            		lengthGroupB += (*sManagedSteps[chainIndex]).length(states[chainIndex].data());
-            	} else {
-            		lengthGroupA += (*sManagedSteps[chainIndex]).length(states[chainIndex].data());
-            	}
-            }
-            bool isGroupBVirtual = lengthGroupB < lengthGroupA;
             // remove all virtual chains and all states that are too small
             for (int chainIndex = states.size() - 1; chainIndex > -1; chainIndex--) {
-				if(states[chainIndex].size() / TypeManagedStep::TypeMemberStep::StateSize < Type::sManagedStep->interpolationOrder + 1) {
+            	if (isChainVirtual[chainIndex]) {
+            		states.erase(states.begin() + chainIndex);
+				} else if(states[chainIndex].size() / TypeManagedStep::TypeMemberStep::StateSize < Type::sManagedStep->interpolationOrder + 1) {
 					states.erase(states.begin() + chainIndex);
-				} else {
-					if (isGroupBVirtual) {
-						if (isChainInGroupB[chainIndex]) {
-							states.erase(states.begin() + chainIndex);
-						}
-					} else {
-						if (not isChainInGroupB[chainIndex]) {
-							states.erase(states.begin() + chainIndex);
-						}
-					}
 				}
             }
             Type::registerStates(states);
