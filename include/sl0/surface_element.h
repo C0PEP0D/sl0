@@ -35,6 +35,16 @@ class StepSurfaceElement : public StepObjectStatic<TypeVector, DIM, 2*DIM + 1> {
 			return dState;
 		}
 	public:
+        void update(double* pState, const double& t) override {
+            Type::update(pState, t);
+            // just orthonormalize axis
+            normalizeAxis(pState);
+        }
+        // sub update methods
+        void normalizeAxis(double* pState) {
+            axis(pState).normalize();
+        }
+	public:
 		TypeView<const TypeSpaceVector> cX(const double* pState) const {
 			return TypeView<const TypeSpaceVector>(pState);
 		}
