@@ -25,7 +25,6 @@ class StepChainManager : public StepManagerHomogeneous<TypeVector, DIM, StepChai
 			std::vector<bool> isChainVirtual(states.size(), false); // Nice but not enough to segregate stuff
 			// TODO: DEAL WITH j + 1 = 0
 			for (unsigned int chainIndex = 0; chainIndex < states.size(); chainIndex++) {
-				// std::cout << "intersection nb: " << (*sManagedSteps[chainIndex]).intersections(states[chainIndex].data()).size() << std::endl;
             	const auto firstIntersectionData = (*sManagedSteps[chainIndex]).firstIntersection(states[chainIndex].data());
             	if(firstIntersectionData.j != 0 && firstIntersectionData.i != 0) {
             		// debug
@@ -39,20 +38,48 @@ class StepChainManager : public StepManagerHomogeneous<TypeVector, DIM, StepChai
             		TypeView<TypeStateVectorDynamic>(sManagedSteps[newChainIndex]->memberState(states[newChainIndex].data(), sManagedSteps[newChainIndex]->size() - 1), intersectionState.size()) = intersectionState;
 					TypeView<TypeStateVectorDynamic>(sManagedSteps[chainIndex]->memberState(states[chainIndex].data(), firstIntersectionData.i + 1), intersectionState.size()) = intersectionState;
 					// set virtual
-					if ((*sManagedSteps[chainIndex]).length(states[chainIndex].data()) < (*sManagedSteps[newChainIndex]).length(states[newChainIndex].data())) {
-						isChainVirtual[chainIndex] = true;
-					} else {
-						isChainVirtual[chainIndex] = false;
-					}
-					isChainVirtual.emplace_back(!isChainVirtual[chainIndex]);
+					// if ((*sManagedSteps[chainIndex]).length(states[chainIndex].data()) < (*sManagedSteps[newChainIndex]).length(states[newChainIndex].data())) {
+						// isChainVirtual[chainIndex] = true;
+					// } else {
+						// isChainVirtual[chainIndex] = false;
+					// }
+					// isChainVirtual.emplace_back(!isChainVirtual[chainIndex]);
+					isChainVirtual.emplace_back(false);
             	}
             }
-            // remove all virtual chains and all states that are too small
+            // remove all states that are too small
+            for (int chainIndex = states.size() - 1; chainIndex > -1; chainIndex--) {
+				if(states[chainIndex].size() / TypeManagedStep::TypeMemberStep::StateSize < Type::sManagedStep->interpolationOrder + 1) {
+					states.erase(states.begin() + chainIndex);
+					isChainVirtual.pop_back();
+				}
+            }
+            Type::registerStates(states);
+            // TESTING: CHECKING WICH CHAIN IS VIRTUAL, TODO: ONLY "NEW ONES" SHOULD BE CHECKED
+            for (unsigned int chainIndex = 0; chainIndex < states.size(); chainIndex++) {
+            	int intersectionsNumber = 0;
+            	// get points
+				const double* pChainPointState0 = sManagedSteps[chainIndex]->cMemberState(states[chainIndex].data(), 2);
+				const auto& chainPointX0 = sManagedSteps[chainIndex]->sMemberStep->cX(pChainPointState0);
+				const double* pChainPointState1 = sManagedSteps[chainIndex]->cMemberState(states[chainIndex].data(), 3);
+				const auto& chainPointX1 = sManagedSteps[chainIndex]->sMemberStep->cX(pChainPointState1);
+				// compute segment
+				const auto& chainSegment = chainPointX1 - chainPointX0;
+				const auto& chainSegmentX = 0.5 * (chainPointX0 + chainPointX1);
+				const auto& chainSegmentNormal = TypeSpaceVector(chainSegment(1), -chainSegment(0), chainSegment(2));
+            	for (unsigned int otherChainIndex = 0; otherChainIndex < states.size(); otherChainIndex++) {
+            		if (otherChainIndex != chainIndex) {
+            			intersectionsNumber += sManagedSteps[otherChainIndex]->rayIntersections(states[otherChainIndex].data(), chainSegmentX, chainSegmentNormal).size();
+            		} else {
+            			// intersectionsNumber += sManagedSteps[otherChainIndex]->rayIntersections(states[otherChainIndex].data(), chainSegmentX, chainSegmentNormal, {2}).size();
+            		}
+            	}
+            	isChainVirtual[chainIndex] = (intersectionsNumber % 2 == 1);
+            }
+            // remove all virtual chains
             for (int chainIndex = states.size() - 1; chainIndex > -1; chainIndex--) {
             	if (isChainVirtual[chainIndex]) {
             		states.erase(states.begin() + chainIndex);
-				} else if(states[chainIndex].size() / TypeManagedStep::TypeMemberStep::StateSize < Type::sManagedStep->interpolationOrder + 1) {
-					states.erase(states.begin() + chainIndex);
 				}
             }
             Type::registerStates(states);

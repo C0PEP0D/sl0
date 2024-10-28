@@ -101,16 +101,16 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			}
 			return state;
 		}
-	public:
+
 		TypeVector<DIM> cX(const double* pState, const double& p_s) const {
 			const TypeStateVectorDynamic state = cState(pState, p_s);
 			return sMemberStep->cX(state.data());
 		}
-	public:
+
 		double cS(const unsigned int memberIndex) const {
 			return double(memberIndex) / (Type::size() - int(!closed)); // TODO: deal with closed everywhere
 		}
-	public:
+
 		double length(const double* pState) const {
 			double l = 0.0;
 			for(std::size_t i = 1; i < Type::size(); i++){ 
@@ -125,6 +125,7 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			}
 			return l;
 		}
+
 	public:
 		struct ClosestPointData {
 			public:
@@ -170,6 +171,7 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 			});
 			return closestPointsData.front();
 		}
+
 	public:
 		struct IntersectionData {
 			public:
@@ -284,6 +286,64 @@ class StepChainDynamic : public StepGroupDynamicHomogeneous<TypeVector, DIM, Typ
 						newIntersectionData.j = Type::size() - 1;
 						newIntersectionData.iS = cS(i) + (point - iX0).dot(iDir)/iLength * (cS(i + 1) - cS(i));
 						newIntersectionData.jS = cS(Type::size() - 1) + (point - jX0).dot(jDir)/jLength * (1.0 - cS(Type::size() - 1));
+						intersectionsData.push_back(newIntersectionData);
+					}
+				}
+			}
+			return intersectionsData;
+		}
+
+		struct RayIntersectionData {
+			public:
+				RayIntersectionData() {
+				}
+			public:
+				TypeSpaceVector point;
+				unsigned int index;
+				double s;
+		};
+
+		std::vector<RayIntersectionData> rayIntersections(const double* pState, const TypeSpaceVector& rayOrigin, const TypeSpaceVector& rayDirection, const std::vector<std::size_t>& exceptions = {}) const {
+			// Construct ray line
+			Line rayLine = Line::Through(TypeVector<2>(rayOrigin(0), rayOrigin(1)), TypeVector<2>(rayOrigin(0) + rayDirection(0), rayOrigin(1) + rayDirection(1)));
+			// Compute intersections
+			std::vector<RayIntersectionData> intersectionsData;
+			for(unsigned int index = 0; index < Type::size() - 1; index++) {
+				if (std::find(exceptions.begin(), exceptions.end(), index) == exceptions.end()) {
+					const TypeSpaceVector chainSegmentX0 = sMemberStep->cX(cMemberState(pState, index));
+					const TypeSpaceVector chainSegmentX1 = sMemberStep->cX(cMemberState(pState, index + 1));
+					const TypeSpaceVector chainSegment = chainSegmentX1 - chainSegmentX0;
+					const double chainSegmentLength = chainSegment.norm();
+					const TypeSpaceVector chainSegmentDir = chainSegment / chainSegmentLength;
+					Line chainSegmentLine = Line::Through(TypeVector<2>(chainSegmentX0(0), chainSegmentX0(1)), TypeVector<2>(chainSegmentX1(0), chainSegmentX1(1)));
+
+					const TypeVector<2> point2d = rayLine.intersection(chainSegmentLine);
+					const TypeSpaceVector point = TypeSpaceVector({point2d(0), point2d(1), (1.0/3.0) * (chainSegmentX0(2) + chainSegmentX1(2) + rayOrigin(2))});
+					if (((point - chainSegmentX0).dot(chainSegmentDir) > 0.0) && ((point - chainSegmentX0).dot(chainSegmentDir) < chainSegmentLength) && ((point - rayOrigin).dot(rayDirection) > 0.0)) {
+						RayIntersectionData newIntersectionData;
+						newIntersectionData.point = point;
+						newIntersectionData.index = index;
+						newIntersectionData.s = cS(index) + (point - chainSegmentX0).dot(chainSegmentDir)/chainSegmentLength * (cS(index + 1) - cS(index));
+						intersectionsData.push_back(newIntersectionData);
+					}
+				}
+			}
+			if (closed) {
+				if (std::find(exceptions.begin(), exceptions.end(), Type::size() - 1) == exceptions.end()) {
+					const TypeSpaceVector chainSegmentX0 = sMemberStep->cX(cMemberState(pState, Type::size() - 1));
+					const TypeSpaceVector chainSegmentX1 = sMemberStep->cX(cMemberState(pState, 0));
+					const TypeSpaceVector chainSegment = chainSegmentX1 - chainSegmentX0;
+					const double chainSegmentLength = chainSegment.norm();
+					const TypeSpaceVector chainSegmentDir = chainSegment / chainSegmentLength;
+					Line chainSegmentLine = Line::Through(TypeVector<2>(chainSegmentX0(0), chainSegmentX0(1)), TypeVector<2>(chainSegmentX1(0), chainSegmentX1(1)));
+
+					const TypeVector<2> point2d = rayLine.intersection(chainSegmentLine);
+					const TypeSpaceVector point = TypeSpaceVector({point2d(0), point2d(1), (1.0/3.0) * (chainSegmentX0(2) + chainSegmentX1(2) + rayOrigin(2))});
+					if (((point - chainSegmentX0).dot(chainSegmentDir) > 0.0) && ((point - chainSegmentX0).dot(chainSegmentDir) < chainSegmentLength) && ((point - rayOrigin).dot(rayDirection) > 0.0)) {
+						RayIntersectionData newIntersectionData;
+						newIntersectionData.point = point;
+						newIntersectionData.index = Type::size() - 1;
+						newIntersectionData.s = cS(Type::size() - 1) + (point - chainSegmentX0).dot(chainSegmentDir)/chainSegmentLength * (1.0 - cS(Type::size() - 1));
 						intersectionsData.push_back(newIntersectionData);
 					}
 				}
